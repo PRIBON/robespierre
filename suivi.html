@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PRIBON — Suivi des réceptions (live)</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f4f5f7;color:#1a1a1a}
+  .header{background:#1a4d2e;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center}
+  .header h1{margin:0;font-size:18px}
+  .header .sub{font-size:12px;opacity:.85}
+  .wrap{max-width:1200px;margin:0 auto;padding:16px}
+  #gate{max-width:420px;margin:60px auto;background:#fff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.08);padding:24px;text-align:center}
+  .muted{color:#888;font-size:13px;line-height:1.5}
+  .err{color:#d32f2f;font-size:13px;margin-top:8px}
+  .hidden{display:none}
+  .board{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;margin-top:12px}
+  .store{background:#fff;border-radius:14px;box-shadow:0 2px 8px rgba(0,0,0,.06);overflow:hidden;display:flex;flex-direction:column}
+  .store h2{margin:0;font-size:16px;background:#1a4d2e;color:#fff;padding:12px 14px;display:flex;justify-content:space-between;align-items:center}
+  .store h2 .live{font-size:11px;background:#e53935;border-radius:10px;padding:2px 8px;font-weight:700;display:flex;align-items:center;gap:5px}
+  .dot{width:7px;height:7px;border-radius:50%;background:#fff;animation:blink 1.2s infinite}
+  @keyframes blink{50%{opacity:.2}}
+  .store .body{padding:12px;display:flex;flex-direction:column;gap:10px}
+  .rec{border:1.5px solid #e6e8ec;border-radius:10px;padding:12px}
+  .rec.draft{background:#fff8e1;border-color:#ffb300}
+  .rec.valid{background:#e8f5e9;border-color:#4caf50}
+  .rec .top{display:flex;justify-content:space-between;gap:8px}
+  .rec .sup{font-weight:800;font-size:14px}
+  .rec .who{font-size:12px;color:#1a4d2e;font-weight:700;margin-top:2px}
+  .rec .meta{font-size:12px;color:#666;margin-top:4px;display:flex;gap:10px;flex-wrap:wrap}
+  .pbar{background:#e6e8ec;height:9px;border-radius:5px;overflow:hidden;margin-top:8px}
+  .pfill{height:100%;background:#4caf50}
+  .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px}
+  .badge.draft{background:#ffe0b2;color:#e65100}
+  .badge.valid{background:#c8e6c9;color:#2e7d32}
+  .since{font-variant-numeric:tabular-nums;font-weight:700;color:#e65100}
+  .empty{color:#999;font-size:13px;padding:6px 2px}
+  .storewarn{font-size:12px;color:#c62828;padding:10px 14px}
+  button.refresh{background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:600;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="header">
+  <div><h1>📡 PRIBON — Suivi des réceptions</h1><div class="sub">Responsable · vue temps réel de tous les magasins</div></div>
+  <div id="whoami" class="sub"></div>
+</div>
+
+<div id="gate">
+  <h2>Connexion responsable</h2>
+  <p class="muted">Connecte-toi avec ton compte Google autorisé (2FA gérée par Google).</p>
+  <div id="gbtn" style="display:flex;justify-content:center;margin-top:10px"></div>
+  <div class="err" id="gateErr"></div>
+</div>
+
+<div class="wrap hidden" id="app">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <div class="muted" id="summary"></div>
+    <button class="refresh" onclick="location.reload()">↻ Recharger</button>
+  </div>
+  <div class="board" id="board"></div>
+</div>
+
+<script>
+/* =========================== CONFIGURATION =========================== */
+const OAUTH_CLIENT_ID = "__CLIENT_ID.apps.googleusercontent.com__";
+const APPS_SCRIPT_URL = "__A_REMPLIR__";
+
+// Un objet par magasin. Colle la config Firebase de CHAQUE magasin (comme dans son index.html).
+// Laisse firebaseConfig vide ({}) pour un magasin pas encore prêt : il sera juste ignoré.
+const STORES = [
+  { code:"ROBESPIERRE", label:"Pribon Robespierre", firebaseConfig:{ /* apiKey, authDomain, databaseURL, projectId, appId */ } },
+  { code:"TOLBIAC",     label:"Pribon Tolbiac",     firebaseConfig:{ } },
+  { code:"BICHAT",      label:"Pribon Bichat",      firebaseConfig:{ } },
+  { code:"BELLEVILLE",  label:"Pribon Belleville",  firebaseConfig:{ } }
+];
+/* =================================================================== */
+
+let ID_TOKEN=null;
+const state={};   // code -> { receptions:{}, docs:{} }
+const names={};   // operatorCode -> "Prénom Nom"
+let pendingNames=false;
+
+function onCredential(resp){
+  ID_TOKEN=resp.credential;
+  fetch(APPS_SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify({action:"verify-responsable",idToken:ID_TOKEN})})
+    .then(r=>r.json()).then(j=>{
+      if(j&&j.allowed){ startBoard(j.email); }
+      else document.getElementById("gateErr").textContent="Accès refusé : "+((j&&j.email)||"")+" n'est pas autorisé.";
+    }).catch(e=>document.getElementById("gateErr").textContent="Erreur : "+e.message);
+}
+
+window.onload=function(){
+  if(OAUTH_CLIENT_ID.indexOf("__")!==-1){ document.getElementById("gateErr").textContent="Renseigne OAUTH_CLIENT_ID et APPS_SCRIPT_URL en haut du fichier."; return; }
+  const t=setInterval(()=>{ if(window.google&&google.accounts&&google.accounts.id){ clearInterval(t);
+    google.accounts.id.initialize({client_id:OAUTH_CLIENT_ID,callback:onCredential});
+    google.accounts.id.renderButton(document.getElementById("gbtn"),{theme:"filled_blue",size:"large",text:"signin_with"});
+  }},150);
+};
+
+function startBoard(email){
+  document.getElementById("gate").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  document.getElementById("whoami").textContent=email;
+  STORES.forEach(s=>{
+    state[s.code]={receptions:{},docs:{},ready:false,err:""};
+    const cfg=s.firebaseConfig||{};
+    if(!cfg.databaseURL){ state[s.code].err="Firebase non configuré"; return; }
+    try{
+      const appF=firebase.initializeApp(cfg, s.code);
+      const db=firebase.database(appF);
+      state[s.code].ready=true;
+      db.ref("receptions").on("value",snap=>{ state[s.code].receptions=snap.val()||{}; queueNames(); render(); });
+      db.ref("documents").on("value",snap=>{ state[s.code].docs=snap.val()||{}; render(); });
+    }catch(e){ state[s.code].err="Erreur: "+e.message; }
+  });
+  render();
+  setInterval(render,1000); // met à jour les chronos "depuis"
+}
+
+function queueNames(){
+  const need=new Set();
+  Object.values(state).forEach(st=>Object.values(st.receptions||{}).forEach(r=>{ if(r.operatorCode && !(r.operatorCode in names)) need.add(r.operatorCode); }));
+  if(!need.size || pendingNames) return;
+  pendingNames=true;
+  fetch(APPS_SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify({action:"resolve-names",idToken:ID_TOKEN,codes:Array.from(need)})})
+    .then(r=>r.json()).then(j=>{ if(j&&j.names) Object.assign(names,j.names); pendingNames=false; render(); })
+    .catch(()=>{ pendingNames=false; });
+}
+
+function activeCount(doc){ if(!doc||!doc.lines) return 0; return doc.lines.filter(l=>!l.nonLivre).length; }
+function pointed(recLines){ return Object.values(recLines||{}).filter(s=>s&&s.status).length; }
+function since(ts){ if(!ts) return ""; let s=Math.max(0,Math.floor((Date.now()-ts)/1000));
+  const h=Math.floor(s/3600); s%=3600; const m=Math.floor(s/60); s%=60;
+  return (h?h+"h":"")+String(m).padStart(h?2:1,"0")+"m"+String(s).padStart(2,"0"); }
+function heure(ts){ if(!ts) return ""; const d=new Date(ts); return d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function render(){
+  let totalDraft=0, totalStores=0;
+  const html=STORES.map(s=>{
+    const st=state[s.code]||{};
+    if(st.err) return `<div class="store"><h2>${esc(s.label)}</h2><div class="storewarn">${esc(st.err)}</div></div>`;
+    totalStores++;
+    const recs=Object.entries(st.receptions||{}).map(([id,r])=>({id,...r}));
+    const drafts=recs.filter(r=>r.status!=="validated").sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+    const valids=recs.filter(r=>r.status==="validated").sort((a,b)=>(b.validatedAt||0)-(a.validatedAt||0)).slice(0,4);
+    totalDraft+=drafts.length;
+    const card=(r,isDraft)=>{
+      const doc=st.docs[r.docId]; const tot=activeCount(doc); const p=pointed(r.lines); const pct=tot?Math.round(p/tot*100):0;
+      const who=names[r.operatorCode]||"…";
+      return `<div class="rec ${isDraft?'draft':'valid'}">
+        <div class="top"><div><div class="sup">${esc(r.supplier||'?')} · ${esc(r.docNumber||'')}</div>
+        <div class="who">👤 ${esc(who)}</div></div>
+        <span class="badge ${isDraft?'draft':'valid'}">${isDraft?'En cours':'Validée'}</span></div>
+        <div class="pbar"><div class="pfill" style="width:${pct}%"></div></div>
+        <div class="meta"><span>${p}/${tot||'?'} pointés (${pct}%)</span>
+        ${isDraft?`<span>débutée ${esc(heure(r.createdAt))} · <span class="since">depuis ${esc(since(r.createdAt))}</span></span>`
+                 :`<span>validée ${esc(heure(r.validatedAt))}</span>`}
+        ${r.ecartCount?`<span>⚠ ${r.ecartCount} écart(s)</span>`:''}</div></div>`;
+    };
+    const body = (drafts.length? drafts.map(r=>card(r,true)).join("") : `<div class="empty">Aucune réception en cours.</div>`)
+      + (valids.length? `<div class="empty">Dernières validées</div>`+valids.map(r=>card(r,false)).join("") : "");
+    return `<div class="store"><h2>${esc(s.label)} <span class="live"><span class="dot"></span>LIVE</span></h2><div class="body">${body}</div></div>`;
+  }).join("");
+  document.getElementById("board").innerHTML=html;
+  document.getElementById("summary").textContent=`${totalStores} magasin(s) connecté(s) · ${totalDraft} réception(s) en cours`;
+}
+</script>
+</body>
+</html>

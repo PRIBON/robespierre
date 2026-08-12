@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>PRIBON Montreuil — Réception</title>
+<script>
+// Repli CDN : si jsDelivr est bloqué, on recharge depuis unpkg.
+function __cdnFB(u){ document.write('<scr'+'ipt src="'+u+'"></scr'+'ipt>'); }
+</script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" onerror="__cdnFB('https://unpkg.com/react@18/umd/react.production.min.js')"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" onerror="__cdnFB('https://unpkg.com/react-dom@18/umd/react-dom.production.min.js')"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.4/babel.min.js" onerror="__cdnFB('https://unpkg.com/@babel/standalone@7.26.4/babel.min.js')"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<!-- pdf.js pour lire les BL au format PDF -->
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script>
+  if (window['pdfjsLib']) {
+    window['pdfjsLib'].GlobalWorkerOptions.workerSrc =
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  }
+</script>
+
+<!-- Firebase (compat builds, comme l'app dispatch). Storage NON utilisé (payant) : les photos vont sur Google Drive via Apps Script. -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+<!-- Google Identity Services : connexion 2FA du responsable (bouton Admin discret) -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<!-- Google Identity Services : connexion Google du responsable (entrepôt) -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f4f5f7; color: #1a1a1a; overscroll-behavior: none;
+  }
+  button { font-family: inherit; cursor: pointer; border: none; }
+  input, textarea, select { font-family: inherit; }
+  .app { max-width: 900px; margin: 0 auto; min-height: 100vh; background: #fff; }
+
+  /* Header */
+  .header {
+    position: sticky; top: 0; z-index: 10;
+    background: #1a4d2e; color: #fff; padding: 12px 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.1);
+  }
+  .header-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .header h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: .3px; }
+  .header .sub { font-size: 12px; opacity: .85; margin-top: 2px; }
+  .header-actions { display: flex; gap: 8px; align-items:center; }
+  .header-btn {
+    background: rgba(255,255,255,.15); color: #fff; padding: 6px 12px;
+    border-radius: 6px; font-size: 13px; font-weight: 600;
+  }
+  .header-btn:active { background: rgba(255,255,255,.3); }
+  .conn-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,.2); }
+  .conn-status.offline { background: #d32f2f; }
+
+  /* Login / centered screens */
+  .screen-center {
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 24px;
+  }
+  .logo { font-size: 26px; font-weight: 800; color: #1a4d2e; margin-bottom: 4px; letter-spacing: -.5px; text-align:center; }
+  .brand-logo { max-width: 230px; width: 70%; height:auto; margin: 0 auto 6px; display:block; }
+  .push-msg { font-size:16px; line-height:1.45; white-space:pre-wrap; background:#fff8e1; border:1.5px solid #ffb300; border-radius:10px; padding:14px; margin-bottom:14px; }
+  .tag { color: #666; font-size: 14px; margin-bottom: 28px; text-align:center; }
+  .card { width: 100%; max-width: 380px; background: #fff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.08); padding: 24px; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #555; }
+  .field input, .field select, .field textarea {
+    width: 100%; padding: 12px; font-size: 16px;
+    border: 1.5px solid #ddd; border-radius: 8px; background: #fff;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: #1a4d2e; }
+  .code-input { text-align:center; letter-spacing: 8px; font-size: 26px !important; font-weight: 800; }
+  .btn-primary { width: 100%; padding: 14px; font-size: 16px; font-weight: 700; background: #1a4d2e; color: #fff; border-radius: 8px; transition: background .15s; }
+  .btn-primary:active { background: #0d3d20; }
+  .btn-primary:disabled { background: #aaa; }
+  .btn-secondary { width: 100%; padding: 12px; font-size: 14px; font-weight: 600; background: #f0f0f0; color: #333; border-radius: 8px; margin-top: 8px; }
+  .err { color: #d32f2f; font-size: 13px; margin-top: 8px; text-align:center; }
+  .link-btn { background:none; color:#1a4d2e; font-weight:600; font-size:13px; text-decoration:underline; padding:6px; }
+
+  /* Upload */
+  .upload-zone { border: 2px dashed #1a4d2e; border-radius: 12px; padding: 28px 16px; text-align: center; background: #f4f9f5; cursor: pointer; }
+  .upload-zone:active { background: #e6f1ea; }
+  .upload-zone .icon { font-size: 38px; margin-bottom: 8px; }
+  .upload-zone .label { font-weight: 600; color: #1a4d2e; }
+  .upload-zone .hint { font-size: 12px; color: #666; margin-top: 4px; }
+
+  /* Lists */
+  .list-wrap { padding: 10px; padding-bottom: 110px; }
+  .doc-card { background:#fff; border:1.5px solid #e6e8ec; border-radius:10px; padding:14px; margin-bottom:10px; }
+  .doc-card:active { background:#f7f9f7; }
+  .doc-card .t { font-weight:700; font-size:15px; }
+  .doc-card .m { font-size:12px; color:#777; margin-top:4px; display:flex; gap:10px; flex-wrap:wrap; }
+  .badge { font-size:11px; font-weight:700; padding:3px 8px; border-radius:10px; display:inline-block; }
+  .badge.draft { background:#fff3e0; color:#e65100; }
+  .badge.valid { background:#e8f5e9; color:#2e7d32; }
+  .badge.info  { background:#eef2f7; color:#555; }
+
+  /* Product list (réception) */
+  .search-bar { position: sticky; top: 60px; z-index: 5; background: #fff; padding: 8px 12px; border-bottom: 1px solid #e6e8ec; }
+  .search-bar input { width: 100%; padding: 10px 12px; font-size: 15px; border: 1.5px solid #ddd; border-radius: 8px; }
+  .search-bar input:focus { outline: none; border-color: #1a4d2e; }
+  .product-list { padding: 8px; padding-bottom: 120px; }
+  .product-card { background:#fff; border:1.5px solid #e6e8ec; border-radius:10px; padding:12px; margin-bottom:8px; transition: all .15s; }
+  .product-card.conforme { background:#e8f5e9; border-color:#4caf50; }
+  .product-card.ecart { background:#fff3e0; border-color:#ff9800; }
+  .designation { font-size: 15px; font-weight: 700; line-height: 1.3; margin-bottom: 4px; }
+  .product-meta { font-size: 11px; color: #777; margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items:center; }
+  .product-meta .article { font-family: monospace; }
+  .attendu-pill { background:#eef2f7; color:#333; border-radius:8px; padding:3px 10px; font-weight:700; font-size:13px; }
+  .attendu-pill b { font-size:16px; color:#1a4d2e; }
+  .actions-row { display:flex; gap:10px; }
+  /* Boutons larges = utilisables au pouce, à une main */
+  .btn-conf { flex:1; padding:18px 12px; font-size:16px; font-weight:800; background:#1a4d2e; color:#fff; border-radius:12px; }
+  .btn-conf.on { background:#2e7d32; }
+  .btn-nonconf { flex:1; padding:18px 12px; font-size:16px; font-weight:800; background:#fff; color:#e65100; border:2px solid #ff9800; border-radius:12px; }
+  .btn-nonconf.on { background:#ff9800; color:#fff; }
+  .line-state { font-size:13px; margin-top:10px; padding-top:8px; border-top:1px dashed #ddd; color:#555; }
+  .line-state b { color:#1a4d2e; }
+  .thumb { width:44px; height:44px; border-radius:6px; object-fit:cover; border:1px solid #ccc; }
+
+  /* Cartes réception "nouvelles réceptions" plus grandes */
+  .doc-card.big { padding:16px; border-radius:14px; }
+  .doc-card.big .t { font-size:17px; }
+  .doc-card .sub2 { font-size:13px; color:#666; margin-top:3px; }
+  .doc-card .deliv { margin-top:8px; font-size:14px; background:#eaf3ec; color:#1a4d2e; border-radius:8px; padding:8px 10px; }
+  .doc-card .go { margin-left:auto; color:#1a4d2e; font-weight:800; font-size:14px; }
+  .pbar { background:#e6e8ec; height:9px; border-radius:5px; overflow:hidden; margin-top:10px; }
+  .pfill { height:100%; background:#4caf50; transition:width .3s ease; }
+  .pbar-lbl { font-size:12px; color:#555; margin-top:4px; font-weight:600; }
+
+  /* En-têtes de catégorie (repliables) */
+  .cat-head { width:100%; display:flex; justify-content:space-between; align-items:center;
+    background:#1a4d2e; color:#fff; border:none; border-radius:10px; padding:14px 16px;
+    font-size:15px; font-weight:800; margin:14px 0 8px; position:sticky; top:112px; z-index:4; box-shadow:0 2px 6px rgba(0,0,0,.12); }
+  .cat-head:active { background:#0d3d20; }
+  .cat-name { letter-spacing:.3px; }
+  .cat-count { font-size:13px; opacity:.9; font-weight:700; display:flex; align-items:center; gap:8px; }
+  .cat-count .chev { font-size:14px; }
+  /* Cartes produit un peu plus aérées */
+  .product-card { padding:14px; }
+  .designation { font-size:16px; }
+
+  /* Bottom bar */
+  .bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #e6e8ec; padding: 12px 16px; box-shadow: 0 -2px 8px rgba(0,0,0,.06); z-index: 10; max-width:900px; margin:0 auto; }
+  .bottom-bar .stats { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 8px; }
+  .btn-finish { width: 100%; padding: 14px; font-size: 16px; font-weight: 700; background: #4caf50; color: #fff; border-radius: 8px; }
+  .btn-finish:disabled { background: #aaa; }
+
+  /* Modal */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 16px; }
+  .modal { background: #fff; border-radius: 12px; padding: 20px; width: 100%; max-width: 400px; max-height: 92vh; overflow-y: auto; }
+  .modal h3 { margin: 0 0 6px 0; font-size: 16px; }
+  .modal .sub { font-size: 13px; color: #555; margin-bottom: 14px; }
+  .modal-actions { display: flex; gap: 8px; margin-top:8px; }
+  .modal-actions button { flex: 1; padding: 12px; border-radius: 8px; font-weight: 700; font-size: 14px; }
+  .btn-cancel { background: #f0f0f0; color: #555; }
+  .btn-confirm { background: #1a4d2e; color: #fff; }
+
+  /* Recap */
+  .recap-section { padding: 16px; padding-bottom: 130px; }
+  .recap-card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 6px rgba(0,0,0,.05); }
+  .recap-card h3 { margin: 0 0 12px 0; font-size: 15px; }
+  .recap-stat { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  .recap-stat:last-child { border-bottom: none; }
+  .recap-stat .label { color: #666; }
+  .recap-stat .value { font-weight: 700; color: #1a4d2e; }
+  .anomaly-item { padding: 10px; border-radius: 6px; background: #fff3e0; border-left: 3px solid #ff9800; font-size: 12px; margin-bottom: 6px; }
+  .anomaly-item .product { font-weight: 700; }
+  .anomaly-item .detail { color: #666; margin-top: 2px; }
+  .warn-box { background:#fff3e0; border:1.5px solid #ff9800; border-radius:10px; padding:14px; font-size:14px; font-style:italic; color:#e65100; margin-bottom:16px; line-height:1.4; }
+
+  /* Admin */
+  .tabs-bar { display: flex; background: #fff; border-bottom: 1px solid #e6e8ec; position: sticky; top: 60px; z-index: 6; }
+  .tab { flex: 1; padding: 12px 6px; background: transparent; color: #777; font-size: 13px; font-weight: 600; border-bottom: 3px solid transparent; }
+  .tab.active { color: #1a4d2e; border-bottom-color: #1a4d2e; background: #f4f9f5; }
+  .prev-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .prev-table th, .prev-table td { border:1px solid #e6e8ec; padding:6px 8px; text-align:left; }
+  .prev-table th { background:#f4f9f5; position:sticky; top:0; }
+  .op-row { display:flex; gap:8px; align-items:center; padding:10px; border:1px solid #e6e8ec; border-radius:8px; margin-bottom:8px; }
+  .op-row .n { font-weight:700; flex:1; }
+  .op-row .c { font-family:monospace; background:#eef2f7; padding:2px 8px; border-radius:6px; }
+  .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+  .small-note { font-size:12px; color:#888; margin-top:10px; line-height:1.4; }
+</style>
+</head>
+<body>
+<div id="root"><div id="boot-screen" style="max-width:440px;margin:80px auto;text-align:center;font-family:-apple-system,system-ui,sans-serif;color:#666"><div style="font-size:34px">📦</div><div style="margin-top:10px;font-size:15px">Chargement…</div></div></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+/* ===================================================================== */
+/* ============================ CONFIGURATION =========================== */
+/* ===================================================================== */
+
+// >>> À REMPLIR avec la config de TON projet Firebase PRIBON (voir README) <<<
+const FIREBASE_CONFIG = {
+  apiKey:      "__A_REMPLIR__",
+  authDomain:  "__A_REMPLIR__",
+  databaseURL: "__A_REMPLIR__",          // ex: https://pribon-reception-default-rtdb.europe-west1.firebasedatabase.app
+  projectId:   "__A_REMPLIR__",
+  appId:       "__A_REMPLIR__"
+};
+
+// UNE app + UNE base Firebase par dépôt. Pour dupliquer : changer ce bloc + FIREBASE_CONFIG.
+const STORE = { code: "ROBESPIERRE", label: "Pribon Robespierre", appName: "PRIBON ROBESPIERRE" };
+
+// Logo PRIBON (affiché à la connexion). Repli sur emoji si l'image ne charge pas.
+const LOGO_URL = "https://static.wixstatic.com/media/bbaec6_145fdeb1127d41eab38bb1c4fb0bee94~mv2.png/v1/crop/x_0,y_18,w_1772,h_570/fill/w_249,h_79,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/PRIBON_logo_generique_GF.png";
+
+// Le RESPONSABLE (entrepôt) ouvre l'espace admin via CONNEXION GOOGLE (pas de code).
+// La liste des emails autorisés est côté serveur (RESPONSABLE_EMAILS dans l'Apps Script).
+// Client ID OAuth Google (le MÊME que superadmin.html). Voir README étape C.
+const OAUTH_CLIENT_ID = "__CLIENT_ID.apps.googleusercontent.com__";
+
+// Webhook Google Apps Script central (validation des codes vendeur + mail + Sheet + photos).
+// LE MÊME pour tous les magasins. Voir apps_script_reception.gs
+const APPS_SCRIPT_URL = "__A_REMPLIR__";
+
+// Adresse d'info (le destinataire réel du récap est défini côté Apps Script)
+const ADMIN_EMAIL = "hummdonuts@gmail.com";
+
+/* ===================================================================== */
+
+// ---- Firebase (Realtime Database uniquement) ----
+let db = null;
+try {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  db = firebase.database();
+} catch(e) { console.error("Firebase init:", e); }
+
+const APPS_SCRIPT_READY = () => APPS_SCRIPT_URL && !APPS_SCRIPT_URL.includes("__A_REMPLIR__");
+const OAUTH_READY = () => OAUTH_CLIENT_ID && !OAUTH_CLIENT_ID.includes("__");
+
+// Réduit une image (max 1600px, JPEG 0.8) pour un upload léger, puis renvoie {base64, name}
+function resizeImageToBase64(file, maxDim){
+  maxDim = maxDim || 1600;
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = ()=>{
+      let { width:w, height:h } = img;
+      if(Math.max(w,h) > maxDim){ const r=maxDim/Math.max(w,h); w=Math.round(w*r); h=Math.round(h*r); }
+      const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+      cv.getContext("2d").drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      const dataUrl=cv.toDataURL("image/jpeg",0.8);
+      resolve({ base64:dataUrl.split(",")[1], name:(file.name||"photo").replace(/\.[^.]+$/,"")+".jpg" });
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error("Image illisible")); };
+    img.src=url;
+  });
+}
+
+// Valide un code vendeur côté serveur (registre central). Renvoie true/false.
+// Le nom du vendeur n'est JAMAIS renvoyé au navigateur.
+async function verifyVendorCode(code){
+  if(!APPS_SCRIPT_READY()) throw new Error("Configuration serveur manquante (APPS_SCRIPT_URL).");
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method:"POST", headers:{ "Content-Type":"text/plain;charset=utf-8" },
+    body: JSON.stringify({ action:"verify-code", code, storeCode:STORE.code })
+  });
+  const json = await res.json();
+  return !!(json && json.valid);
+}
+
+// Envoie la photo à Google Drive via Apps Script et renvoie l'URL du fichier.
+async function uploadPhotoToDrive(file){
+  if(!APPS_SCRIPT_READY()) throw new Error("Apps Script non configuré (photos indisponibles).");
+  const { base64, name } = await resizeImageToBase64(file);
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method:"POST",
+    headers:{ "Content-Type":"text/plain;charset=utf-8" }, // requête "simple" => pas de préflight CORS
+    body: JSON.stringify({ action:"upload-photo", storeCode:STORE.code, filename:name, base64 })
+  });
+  const json = await res.json();
+  if(!json || !json.url) throw new Error(json && json.error ? json.error : "Réponse Drive invalide");
+  return json.url;
+}
+
+const nowISO = () => new Date().toISOString();
+function norm(s){ return (s||"").toString().normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().trim(); }
+function toNum(s){ if(s==null) return 0; const n=parseFloat(String(s).replace(/\s/g,"").replace(",",".")); return isNaN(n)?0:n; }
+function lineKey(p, idx){ const a=(p.article||"").toString().trim(); return a ? "a_"+a.replace(/[.#$/\[\]]/g,"_") : "i_"+idx; }
+function fmtDate(ts){ if(!ts) return ""; const d=new Date(ts); return d.toLocaleDateString("fr-FR")+" "+d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}); }
+
+/* ============================== PARSEURS ============================== */
+// Sortie commune : { docNumber, supplier, lines:[{article,ean,designation,marque,attendu,label?,nonLivre?}] }
+
+function parseCSV(text){
+  const lines = text.split(/\r?\n/).filter(l=>l.trim().length);
+  if(!lines.length) return { docNumber:"", supplier:"", lines:[] };
+  const head = lines[0].split(";").map(h=>norm(h));
+  const col = (names)=>{ for(const n of names){ const i=head.indexOf(n); if(i>=0) return i; } return -1; };
+  const iType=col(["type de piece"]), iDoc=col(["numero piece"]), iEan=col(["ean"]),
+        iRef=col(["reference"]), iDes=col(["designation"]), iQte=col(["qte","qte "]),
+        iMar=col(["marque"]), iComm=col(["commentaire"]),
+        iFam=col(["famille"]), iRay=col(["rayon"]);
+  const out=[]; let docNumber="";
+  for(let r=1;r<lines.length;r++){
+    const c=lines[r].split(";"); if(c.length<3) continue;
+    const type=(iType>=0?c[iType]:"").trim();
+    const article=(iRef>=0?c[iRef]:"").trim();
+    const des=(iDes>=0?c[iDes]:"").trim();
+    if(!article && !des) continue;
+    const nonLivre=/non\s*livr/i.test(type);
+    if(iDoc>=0 && c[iDoc] && !docNumber && !nonLivre) docNumber=c[iDoc].trim();
+    const fam=(iFam>=0?c[iFam]:"").trim(), ray=(iRay>=0?c[iRay]:"").trim();
+    out.push({
+      article, ean:(iEan>=0?c[iEan]:"").trim().replace(/^0+(?=\d)/,""),
+      designation:des, marque:(iMar>=0?c[iMar]:"").trim(),
+      attendu:toNum(iQte>=0?c[iQte]:0),
+      categorie: (fam||ray||"Autres"),
+      comment:(iComm>=0?(c[iComm]||"").trim():""), nonLivre
+    });
+  }
+  return { docNumber, supplier:"", lines: out };
+}
+
+function parseTXT(text){
+  const rows=text.split(/\r?\n/); const out=[]; let docNumber=""; let skipped=0;
+  const dateRe=/^\d{2}\/\d{2}\/\d{4}$/;
+  for(const raw of rows){
+    if(!raw.trim()) continue;
+    const c=raw.split("\t");
+    if(c.length<9 || !dateRe.test((c[2]||"").trim())){ skipped++; continue; }
+    const article=(c[4]||"").trim(), des=(c[5]||"").trim(), qte=toNum(c[8]);
+    if(!article || !des){ skipped++; continue; }
+    if(c[3]) docNumber=(c[3]||"").trim();
+    out.push({ article, ean:"", designation:des, marque:"", attendu:qte, categorie:"Autres", label:(c[6]||"").trim() });
+  }
+  return { docNumber, supplier:"", lines: out, skipped };
+}
+
+function parsePDFLines(rowLines){
+  const out=[]; let supplier=""; let docNumber="";
+  const lineRe=/^(\d{2,7})\s+(.*\S)\s+(\d{8,13})\s+(\d+)\s+[\d.,]+\s+[\d.,]+\s*$/;
+  for(const L of rowLines){
+    if(!supplier && /VITAFRAIS/i.test(L)) supplier="VITAFRAIS";
+    const mBL=L.match(/n[°º]\s*BL\s*:?\s*(\d+)/i); if(mBL) docNumber=mBL[1];
+    if(/^(Palette|Colis \d|Poids|Total|Distribution|Page|Commande|BIO :|DEM :)/i.test(L)) continue;
+    const m=L.match(lineRe); if(!m) continue;
+    out.push({ article:m[1], ean:m[3].replace(/^0+(?=\d)/,""),
+               designation:m[2].replace(/\s+\d+$/,"").trim(), marque:"", attendu:parseInt(m[4],10), categorie:"Autres" });
+  }
+  return { docNumber, supplier, lines: out };
+}
+
+// Lit un PDF (ArrayBuffer) -> lignes visuelles groupées par y, puis parsePDFLines
+async function readPDF(arrayBuffer){
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let rowLines=[];
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p); const tc=await page.getTextContent();
+    const rows={};
+    for(const it of tc.items){ const y=Math.round(it.transform[5]); (rows[y]=rows[y]||[]).push([it.transform[4], it.str]); }
+    Object.keys(rows).map(Number).sort((a,b)=>b-a).forEach(y=>{
+      const line=rows[y].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).join(" ").replace(/\s+/g," ").trim();
+      if(line) rowLines.push(line);
+    });
+  }
+  return parsePDFLines(rowLines);
+}
+
+// Détecte le format et renvoie la sortie commune
+async function parseAnyFile(file){
+  const name=(file.name||"").toLowerCase();
+  if(name.endsWith(".pdf")){
+    const buf=await file.arrayBuffer();
+    return { ...(await readPDF(buf)), format:"PDF" };
+  }
+  // CSV/TXT : décoder en Windows-1252 (les BL Elibio sont en ANSI)
+  const buf=await file.arrayBuffer();
+  let text;
+  try { text=new TextDecoder("windows-1252").decode(buf); }
+  catch(e){ text=new TextDecoder("utf-8").decode(buf); }
+  // heuristique : contient des tabulations -> TXT tabulé ; sinon CSV ;
+  const firstLines=text.split(/\r?\n/).slice(0,5).join("\n");
+  if(name.endsWith(".csv") || firstLines.includes(";")){
+    // si beaucoup de tabulations et pas de ; -> TXT
+    if(!firstLines.includes(";") && firstLines.includes("\t")) return { ...parseTXT(text), format:"TXT" };
+    return { ...parseCSV(text), format:"CSV" };
+  }
+  return { ...parseTXT(text), format:"TXT" };
+}
+
+// Valide une réception (compteur d'écarts, figeage Firebase, envoi Apps Script).
+// Partagé par l'écran Récap et la validation depuis l'accueil.
+async function validateReceptionCore({ recId, doc, operatorCode, lineStates, activeLines }){
+  const ecarts=[]; let conf=0, ecart=0, none=0;
+  activeLines.forEach((l,i)=>{ const s=lineStates[lineKey(l,i)];
+    if(!s||!s.status){ none++; return; }
+    if(s.status==="conforme") conf++; else { ecart++; ecarts.push({ line:l, s }); }
+  });
+  const validatedAt=Date.now();
+  const ecartsPayload=[];
+  for(const e of ecarts){
+    let num=null;
+    await db.ref("counters/ecart").transaction(cur=>{ num=(cur||111)+1; return num; });
+    ecartsPayload.push({ num, article:e.line.article, designation:e.line.designation,
+      attendu:e.line.attendu, reel:e.s.reel, text:e.s.ecartText||"", photo:e.s.photoUrl||"" });
+  }
+  await db.ref("receptions/"+recId).update({ status:"validated", validatedAt, lines:lineStates,
+    ecarts:ecartsPayload, ecartCount:ecartsPayload.length });
+  const rows=[["Code article","Designation","Attendu","Statut","Reel apte vente","Commentaire ecart","Photo"]];
+  activeLines.forEach((l,i)=>{ const s=lineStates[lineKey(l,i)]||{};
+    rows.push([l.article,l.designation,l.attendu, s.status||"non pointe", s.reel!=null?s.reel:"", s.ecartText||"", s.photoUrl||""]); });
+  const csv=rows.map(r=>r.map(c=>{ const v=String(c==null?"":c); return /[";\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(";")).join("\n");
+  const payload={ action:"log-reception", appName:STORE.appName, store:STORE.label, storeCode:STORE.code,
+    supplier:doc.supplier, docType:doc.type||"BL", docNumber:doc.docNumber, operatorCode,
+    validatedAt:new Date(validatedAt).toISOString(),
+    totals:{ total:activeLines.length, conformes:conf, ecarts:ecart, nonPointes:none },
+    ecarts:ecartsPayload, csv };  // destinataire défini côté Apps Script (ADMIN_EMAIL)
+  if(APPS_SCRIPT_READY()){ try{ await fetch(APPS_SCRIPT_URL,{ method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(payload) }); }catch(e){} }
+  return { conf, ecart, none, total:activeLines.length };
+}
+
+/* ============================ FIREBASE I/O =========================== */
+function useConnection(){
+  const [connected,setConnected]=useState(false);
+  useEffect(()=>{ if(!db) return; const r=db.ref(".info/connected");
+    const cb=s=>setConnected(!!s.val()); r.on("value",cb); return ()=>r.off("value",cb); },[]);
+  return connected;
+}
+
+/* ============================== LOGIN ================================ */
+function Brand(){
+  const [ok,setOk]=useState(true);
+  return ok
+    ? <img className="brand-logo" src={LOGO_URL} alt="PRIBON" onError={()=>setOk(false)}/>
+    : <div className="logo">📦 PRIBON</div>;
+}
+
+// Connexion Google du responsable (entrepôt). Vérifie l'email côté serveur (RESPONSABLE_EMAILS).
+function ResponsableLogin({ onAuthed }){
+  const ref=useRef(); const [err,setErr]=useState(""); const [busy,setBusy]=useState(false);
+  useEffect(()=>{
+    if(!OAUTH_READY()) return;
+    let tries=0; const t=setInterval(()=>{
+      if(window.google && google.accounts && google.accounts.id){
+        clearInterval(t);
+        google.accounts.id.initialize({ client_id:OAUTH_CLIENT_ID, callback: async (resp)=>{
+          setBusy(true); setErr("");
+          try{
+            const r=await fetch(APPS_SCRIPT_URL,{ method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"},
+              body:JSON.stringify({ action:"verify-responsable", idToken:resp.credential }) });
+            const j=await r.json();
+            if(j && j.allowed) onAuthed();
+            else setErr("Accès refusé : "+((j&&j.email)||"")+" n'est pas autorisé.");
+          }catch(e){ setErr("Erreur : "+e.message); }
+          setBusy(false);
+        }});
+        try{ google.accounts.id.renderButton(ref.current,{ theme:"outline", size:"large", text:"signin_with" }); }catch(e){}
+      } else if(++tries>50) clearInterval(t);
+    },150);
+    return ()=>clearInterval(t);
+  },[]);
+  if(!OAUTH_READY()) return null;
+  return (
+    <div style={{marginTop:20,textAlign:"center"}}>
+      <div className="small-note" style={{marginBottom:8}}>Responsable / entrepôt :</div>
+      <div ref={ref} style={{display:"flex",justifyContent:"center"}}></div>
+      {busy && <div className="small-note">Vérification…</div>}
+      {err && <div className="err">{err}</div>}
+    </div>
+  );
+}
+
+function LoginScreen({ onOperator, onAdmin }){
+  const [code,setCode]=useState("");
+  const [err,setErr]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [showAdmin,setShowAdmin]=useState(false);
+
+  const submit=async()=>{
+    setErr("");
+    const c=code.trim();
+    if(c.length<4){ setErr("Entrez votre code."); return; }
+    setBusy(true);
+    try{
+      const ok=await verifyVendorCode(c);
+      if(ok){ onOperator({ code:c }); }   // aucun nom : le vendeur est identifié par son code
+      else setErr("Code inconnu, désactivé, ou non rattaché à ce magasin.");
+    }catch(e){ setErr("Erreur : "+e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="screen-center">
+      <Brand/>
+      <div className="tag">{STORE.label} · Réception des livraisons</div>
+      <div className="card">
+        <div className="field">
+          <label>Code vendeur</label>
+          <input className="code-input" inputMode="numeric" pattern="[0-9]*" maxLength={7}
+            value={code} placeholder="•••••"
+            onChange={e=>setCode(e.target.value.replace(/[^0-9]/g,""))}
+            onKeyDown={e=>{ if(e.key==="Enter") submit(); }} autoFocus />
+        </div>
+        <button className="btn-primary" onClick={submit} disabled={busy}>{busy?"…":"Entrer"}</button>
+        {err && <div className="err">{err}</div>}
+        <div className="small-note">Votre code personnel vous est communiqué par le gérant. Il ne fonctionne que dans ce magasin.</div>
+      </div>
+
+      {/* Accès discrets : Admin (responsable) et Master (gérant / super-admin). */}
+      {!showAdmin
+        ? <div style={{marginTop:24,display:"flex",gap:18,justifyContent:"center"}}>
+            <button className="link-btn" style={{opacity:.4,fontSize:12}} onClick={()=>setShowAdmin(true)}>Admin</button>
+            <a className="link-btn" style={{opacity:.4,fontSize:12}} href="superadmin.html">Master</a>
+          </div>
+        : (
+          <div className="card" style={{marginTop:14}}>
+            {OAUTH_READY()
+              ? <ResponsableLogin onAuthed={onAdmin}/>
+              : <div className="small-note">Connexion responsable indisponible : OAUTH_CLIENT_ID non configuré.</div>}
+            <button className="btn-secondary" onClick={()=>setShowAdmin(false)}>Annuler</button>
+          </div>
+        )}
+    </div>
+  );
+}
+
+/* ============================== ACCUEIL ============================== */
+function HomeScreen({ operator, onOpenDoc, onOpenReception, onLogout, onAfterValidate }){
+  const [docs,setDocs]=useState([]);
+  const [receptions,setReceptions]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+
+  useEffect(()=>{ if(!db) return;
+    const rd=db.ref("documents"); const cb1=s=>{
+      const v=s.val()||{}; setDocs(Object.entries(v).map(([id,d])=>({id,...d})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)));
+      setLoading(false);
+    }; rd.on("value",cb1);
+    const rr=db.ref("receptions"); const cb2=s=>{
+      const v=s.val()||{}; setReceptions(Object.entries(v).map(([id,d])=>({id,...d}))
+        .filter(r=>r.storeCode===STORE.code).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)));
+    }; rr.on("value",cb2);
+    return ()=>{ rd.off("value",cb1); rr.off("value",cb2); };
+  },[]);
+
+  const drafts = receptions.filter(r=>r.status!=="validated");
+  const activeCount = (d)=> (d && d.lines ? d.lines.filter(l=>!l.nonLivre).length : 0);
+  const pointedCount = (recLines)=> Object.values(recLines||{}).filter(s=>s&&s.status).length;
+  const docById = (id)=> docs.find(d=>d.id===id);
+  const ProgressBar = ({p,tot})=>{ const pct=tot?Math.round(p/tot*100):0;
+    return (<div><div className="pbar"><div className="pfill" style={{width:pct+"%"}}></div></div>
+      <div className="pbar-lbl">{p}/{tot} pointés · {pct}%</div></div>); };
+
+  const validateOne=async(rec)=>{
+    const dsnap=await db.ref("documents/"+rec.docId).get(); const d=dsnap.val();
+    const doc = d ? {id:rec.docId,...d}
+      : {id:rec.docId, docNumber:rec.docNumber, supplier:rec.supplier, type:rec.type,
+         lines:Object.values(rec.lines||{}).map(x=>({article:x.article,designation:x.designation,attendu:x.attendu,ean:"",marque:""}))};
+    const activeLines=(doc.lines||[]).filter(l=>!l.nonLivre);
+    await validateReceptionCore({ recId:rec.id, doc, operatorCode:operator.code, lineStates:rec.lines||{}, activeLines });
+  };
+  const onValidateOne=async(rec)=>{
+    if(!confirm("Valider cette réception ?\n\nUne fois validée, impossible de corriger (il faudra refaire une saisie).")) return;
+    setBusy(true); try{ await validateOne(rec); onAfterValidate(); }catch(e){ alert("Erreur : "+e.message); } setBusy(false);
+  };
+  const onValidateAll=async()=>{
+    if(!drafts.length) return;
+    if(!confirm("Valider les "+drafts.length+" réception(s) en cours ?\n\nUne fois validées, impossible de corriger.")) return;
+    setBusy(true); try{ for(const r of drafts){ await validateOne(r); } onAfterValidate(); }catch(e){ alert("Erreur : "+e.message); } setBusy(false);
+  };
+
+  return (
+    <div className="app">
+      <div className="header"><div className="header-row">
+        <div><h1>📦 {STORE.label}</h1><div className="sub">Espace vendeur</div></div>
+        <button className="header-btn" onClick={onLogout}>Quitter</button>
+      </div></div>
+
+      <div className="list-wrap">
+        <h3 style={{margin:"6px 4px 8px"}}>Nouvelles réceptions</h3>
+        {loading && <div className="small-note">Chargement des documents…</div>}
+        {!loading && docs.length===0 && <div className="small-note">Aucun document chargé. L'admin doit charger un BL depuis l'espace admin.</div>}
+        {docs.map(d=>{
+          const already=receptions.find(r=>r.docId===d.id);
+          return (
+            <div key={d.id} className="doc-card big" onClick={()=>onOpenReception(d, already)}>
+              <div className="t">{d.supplier||"Fournisseur ?"}</div>
+              <div className="sub2">{d.type||"BL"} {d.docNumber} · {(d.lines||[]).length} lignes</div>
+              {d.deliveryDate && <div className="deliv">📅 Livraison prévue : <b>{d.deliveryDate}</b></div>}
+              <div className="m">
+                <span className="badge info">{d.format}</span>
+                {already && <span className={"badge "+(already.status==="validated"?"valid":"draft")}>{already.status==="validated"?"Validée":"En cours"}</span>}
+                <span className="go">Réceptionner →</span>
+              </div>
+              {already && <ProgressBar p={pointedCount(already.lines)} tot={activeCount(d)}/>}
+            </div>
+          );
+        })}
+
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"22px 4px 8px"}}>
+          <h3 style={{margin:0}}>Réceptions déjà faites</h3>
+          {drafts.length>1 && <button className="header-btn" style={{background:"#4caf50",color:"#fff"}} onClick={onValidateAll} disabled={busy}>Tout valider ({drafts.length})</button>}
+        </div>
+        {receptions.length===0 && <div className="small-note">Aucune réception pour ce magasin.</div>}
+        {receptions.map(r=>(
+          <div key={r.id} className="doc-card">
+            <div onClick={()=>onOpenDoc(r)}>
+              <div className="t">{r.supplier} — {r.type||"BL"} {r.docNumber}</div>
+              <div className="m">
+                <span className={"badge "+(r.status==="validated"?"valid":"draft")}>{r.status==="validated"?"Validée — figée":"En cours — modifiable"}</span>
+                <span>{fmtDate(r.status==="validated"?r.validatedAt:r.updatedAt||r.createdAt)}</span>
+              </div>
+              {r.status!=="validated" && <ProgressBar p={pointedCount(r.lines)} tot={activeCount(docById(r.docId))}/>}
+            </div>
+            {r.status!=="validated" && (
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                <button className="btn-conf" style={{flex:1}} onClick={()=>onOpenDoc(r)}>Modifier</button>
+                <button className="btn-finish" style={{flex:1,padding:12}} onClick={()=>onValidateOne(r)} disabled={busy}>Valider</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ======================== ÉCRAN RÉCEPTION =========================== */
+function EcartModal({ line, current, onSave, onClose }){
+  const [reel,setReel]=useState(current && current.reel!=null ? String(current.reel) : String(line.attendu));
+  const [txt,setTxt]=useState(current?.ecartText||"");
+  const [photoUrl,setPhotoUrl]=useState(current?.photoUrl||"");        // lien Drive (pour l'enregistrement)
+  const [preview,setPreview]=useState(current?.photoUrl?"__saved__":""); // aperçu local
+  const [uploading,setUploading]=useState(false);
+  const [uerr,setUerr]=useState("");
+
+  const onPhoto=async(e)=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    setUerr("");
+    try{ setPreview(URL.createObjectURL(f)); }catch(_){}
+    if(!APPS_SCRIPT_READY()){ setUerr("Photos indisponibles tant que l'Apps Script n'est pas configuré. Commentaire seul enregistré."); return; }
+    setUploading(true);
+    try{
+      const url=await uploadPhotoToDrive(f);
+      setPhotoUrl(url);
+    }catch(err){ setUerr("Échec envoi photo : "+err.message); }
+    setUploading(false);
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <h3>Écart / non conforme</h3>
+        <div className="sub">{line.designation}<br/>Attendu : <b>{line.attendu}</b></div>
+        <div className="field">
+          <label>Réellement reçu et apte à la vente</label>
+          <input inputMode="numeric" value={reel} onChange={e=>setReel(e.target.value.replace(/[^0-9]/g,""))}/>
+        </div>
+        <div className="field">
+          <label>Commentaire (ex : 2 pots cassés, DLC courte…)</label>
+          <textarea rows={3} value={txt} onChange={e=>setTxt(e.target.value)} placeholder="Décrire l'écart"></textarea>
+        </div>
+        <div className="field">
+          <label>Photo (optionnel)</label>
+          <input type="file" accept="image/*" capture="environment" onChange={onPhoto}/>
+          {uploading && <div className="small-note">Envoi vers Google Drive…</div>}
+          {preview && preview!=="__saved__" && <div style={{marginTop:6}}><img className="thumb" src={preview} style={{width:70,height:70}}/></div>}
+          {photoUrl && <div className="small-note" style={{color:"#2e7d32"}}>✓ Photo enregistrée sur Drive <a href={photoUrl} target="_blank" rel="noreferrer">(ouvrir)</a></div>}
+          {uerr && <div className="err" style={{textAlign:"left"}}>{uerr}</div>}
+        </div>
+        <div className="modal-actions">
+          <button className="btn-cancel" onClick={onClose}>Annuler</button>
+          <button className="btn-confirm" onClick={()=>onSave({ reel:toNum(reel), ecartText:txt.trim(), photoUrl })} disabled={uploading}>Enregistrer l'écart</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductCard({ line, lk, state, readOnly, onConforme, onEcart }){
+  const st=state||{};
+  let cls="product-card";
+  if(st.status==="conforme") cls+=" conforme";
+  else if(st.status==="ecart") cls+=" ecart";
+  return (
+    <div className={cls}>
+      <div className="designation">{line.designation}</div>
+      <div className="product-meta">
+        <span className="attendu-pill">Attendu <b>{line.attendu}</b></span>
+        {line.article && <span className="article">#{line.article}</span>}
+        {line.ean && <span>EAN …{String(line.ean).slice(-4)}</span>}
+        {line.marque && <span>{line.marque}</span>}
+      </div>
+      {!readOnly && (
+        <div className="actions-row">
+          <button className={"btn-conf"+(st.status==="conforme"?" on":"")} onClick={onConforme}>Reçu conforme</button>
+          <button className={"btn-nonconf"+(st.status==="ecart"?" on":"")} onClick={onEcart}>Non conforme</button>
+        </div>
+      )}
+      {st.status && (
+        <div className="line-state">
+          {st.status==="conforme"
+            ? <span>✓ Conforme — <b>{st.reel!=null?st.reel:line.attendu}</b> reçu et apte vente</span>
+            : <span>⚠ Écart — réellement reçu apte vente : <b>{st.reel}</b>{st.ecartText?" — "+st.ecartText:""}
+                {st.photoUrl && <a href={st.photoUrl} target="_blank" rel="noreferrer" style={{marginLeft:8}}>📷 photo</a>}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReceptionScreen({ operator, doc, reception, onExit, onGoRecap }){
+  // reception: objet existant (draft) ou null -> on crée
+  const [recId,setRecId]=useState(reception?.id||null);
+  const [lineStates,setLineStates]=useState(()=> (reception?.lines)||{});
+  const [search,setSearch]=useState("");
+  const [ecartFor,setEcartFor]=useState(null); // {line, lk}
+  const [toast,setToast]=useState("");
+  const [collapsed,setCollapsed]=useState({});  // catégories repliées
+  const readOnly = reception && reception.status==="validated";
+  const savingRef=useRef(false);
+
+  const activeLines = useMemo(()=> (doc.lines||[]).filter(l=>!l.nonLivre), [doc]);
+  const nonLivres = useMemo(()=> (doc.lines||[]).filter(l=>l.nonLivre), [doc]);
+
+  // Crée le draft si nécessaire
+  useEffect(()=>{ let cancelled=false;
+    (async()=>{
+      if(recId || readOnly || !db) return;
+      const ref=db.ref("receptions").push();
+      const rec={ docId:doc.id, docNumber:doc.docNumber, supplier:doc.supplier, type:doc.type||"BL",
+        storeCode:STORE.code, storeLabel:STORE.label, appName:STORE.appName,
+        operatorCode:operator.code,   // pas de nom : seul le code est stocké
+        status:"draft", createdAt:firebase.database.ServerValue.TIMESTAMP, updatedAt:firebase.database.ServerValue.TIMESTAMP, lines:{} };
+      await ref.set(rec);
+      if(!cancelled) setRecId(ref.key);
+    })();
+    return ()=>{ cancelled=true; };
+  },[]);
+
+  const persist=useCallback(async(next)=>{
+    setLineStates(next);
+    if(readOnly || !recId || !db) return;
+    if(savingRef.current) return;
+    savingRef.current=true;
+    try{ await db.ref("receptions/"+recId).update({ lines:next, updatedAt:firebase.database.ServerValue.TIMESTAMP }); }
+    finally{ savingRef.current=false; }
+  },[recId,readOnly]);
+
+  const setConforme=(line,lk)=>{
+    const next={ ...lineStates, [lk]:{ status:"conforme", reel:line.attendu, article:line.article, designation:line.designation, attendu:line.attendu } };
+    persist(next); setToast("Conforme : "+line.designation); setTimeout(()=>setToast(""),1200);
+  };
+  const saveEcart=(line,lk,data)=>{
+    const next={ ...lineStates, [lk]:{ status:"ecart", reel:data.reel, ecartText:data.ecartText, photoUrl:data.photoUrl||"",
+      article:line.article, designation:line.designation, attendu:line.attendu } };
+    persist(next); setEcartFor(null);
+  };
+
+  const filtered=useMemo(()=>{
+    const q=norm(search);
+    if(!q) return activeLines;
+    const last4 = /^\d{4}$/.test(search.trim());
+    return activeLines.filter(l=>{
+      if(last4 && String(l.ean).slice(-4)===search.trim()) return true;
+      return norm(l.designation).includes(q) || norm(l.marque).includes(q) ||
+             norm(l.article).includes(q) || norm(l.ean).includes(q);
+    });
+  },[search,activeLines]);
+
+  const doneCount = activeLines.reduce((n,l,i)=> n + (lineStates[lineKey(l,i)]?.status?1:0), 0);
+  const ecartCount = activeLines.reduce((n,l,i)=> n + (lineStates[lineKey(l,i)]?.status==="ecart"?1:0), 0);
+
+  // Regroupement par catégorie (rayon), pour une navigation à une main
+  const groups = useMemo(()=>{
+    const map=new Map();
+    filtered.forEach(l=>{ const cat=(l.categorie||"Autres"); if(!map.has(cat)) map.set(cat,[]); map.get(cat).push(l); });
+    return Array.from(map.entries());
+  },[filtered]);
+  const catDone=(lines)=>lines.reduce((n,l)=> n + (lineStates[lineKey(l,activeLines.indexOf(l))]?.status?1:0), 0);
+
+  return (
+    <div className="app">
+      <div className="header"><div className="header-row">
+        <div><h1>{doc.supplier||"BL"} {doc.docNumber}</h1>
+          <div className="sub">{readOnly?"Réception validée (lecture seule)":"Pointage en cours"}</div></div>
+        <button className="header-btn" onClick={onExit}>Accueil</button>
+      </div></div>
+
+      <div className="search-bar">
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher : mot-clé, marque, 4 derniers chiffres EAN…"/>
+      </div>
+
+      <div className="product-list">
+        {groups.map(([cat,lines])=>{
+          const isCol=collapsed[cat]; const done=catDone(lines);
+          return (
+            <div key={cat}>
+              <button className="cat-head" onClick={()=>setCollapsed(c=>({...c,[cat]:!c[cat]}))}>
+                <span className="cat-name">{cat}</span>
+                <span className="cat-count">{done}/{lines.length}<span className="chev">{isCol?"▸":"▾"}</span></span>
+              </button>
+              {!isCol && lines.map((l,i)=>{ const lk=lineKey(l, activeLines.indexOf(l));
+                return <ProductCard key={lk+"_"+i} line={l} lk={lk} state={lineStates[lk]} readOnly={readOnly}
+                  onConforme={()=>setConforme(l,lk)} onEcart={()=>setEcartFor({line:l,lk})}/>;
+              })}
+            </div>
+          );
+        })}
+        {filtered.length===0 && <div className="small-note" style={{padding:16}}>Aucun article ne correspond.</div>}
+
+        {nonLivres.length>0 && (
+          <div style={{marginTop:16}}>
+            <div className="small-note"><b>Non livrés / sur commande ({nonLivres.length})</b> — non à pointer :</div>
+            {nonLivres.map((l,i)=>(<div key={"nl"+i} className="doc-card" style={{opacity:.6}}>
+              <div className="t" style={{fontSize:13}}>{l.designation}</div>
+              <div className="m">{l.comment||"Non livré"}</div></div>))}
+          </div>
+        )}
+      </div>
+
+      {ecartFor && <EcartModal line={ecartFor.line} current={lineStates[ecartFor.lk]}
+        onSave={(data)=>saveEcart(ecartFor.line, ecartFor.lk, data)} onClose={()=>setEcartFor(null)}/>}
+
+      <div className="bottom-bar">
+        <div className="stats">
+          <span>Pointés : {doneCount}/{activeLines.length}</span>
+          <span>Écarts : {ecartCount}</span>
+        </div>
+        {readOnly
+          ? <button className="btn-finish" onClick={onExit}>Retour accueil</button>
+          : <button className="btn-finish" onClick={()=>onGoRecap({ id:recId, lineStates, activeLines })}>Voir le récapitulatif</button>}
+      </div>
+
+      {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+/* ============================ RÉCAP + VALIDATION ==================== */
+function RecapScreen({ operator, doc, recId, lineStates, activeLines, onBack, onValidated }){
+  const [confirming,setConfirming]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState("");
+
+  const stats=useMemo(()=>{
+    let conf=0, ecart=0, none=0; const ecarts=[];
+    activeLines.forEach((l,i)=>{ const s=lineStates[lineKey(l,i)];
+      if(!s||!s.status){ none++; return; }
+      if(s.status==="conforme") conf++;
+      else { ecart++; ecarts.push({ line:l, s }); }
+    });
+    return { total:activeLines.length, conf, ecart, none, ecarts };
+  },[lineStates,activeLines]);
+
+  const validate=async()=>{
+    setBusy(true); setErr("");
+    try{
+      await validateReceptionCore({ recId, doc, operatorCode:operator.code, lineStates, activeLines });
+      onValidated();  // App affiche le popup "terminé ? déconnexion"
+    }catch(e){ setErr("Erreur validation : "+e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="app">
+      <div className="header"><div className="header-row">
+        <div><h1>Récapitulatif</h1><div className="sub">{doc.supplier} {doc.docNumber}</div></div>
+        <button className="header-btn" onClick={onBack}>Retour</button>
+      </div></div>
+
+      <div className="recap-section">
+        <div className="recap-card">
+          <h3>Résumé</h3>
+          <div className="recap-stat"><span className="label">Lignes à pointer</span><span className="value">{stats.total}</span></div>
+          <div className="recap-stat"><span className="label">Reçu conforme</span><span className="value">{stats.conf}</span></div>
+          <div className="recap-stat"><span className="label">Écarts / non conforme</span><span className="value">{stats.ecart}</span></div>
+          <div className="recap-stat"><span className="label">Non pointés</span><span className="value">{stats.none}</span></div>
+        </div>
+
+        {stats.ecarts.length>0 && (
+          <div className="recap-card">
+            <h3>Écarts ({stats.ecarts.length})</h3>
+            {stats.ecarts.map((e,i)=>(
+              <div key={i} className="anomaly-item">
+                <div className="product">{e.line.designation}</div>
+                <div className="detail">Attendu {e.line.attendu} → reçu apte vente <b>{e.s.reel}</b>{e.s.ecartText?" — "+e.s.ecartText:""}</div>
+                {e.s.photoUrl && <a href={e.s.photoUrl} target="_blank" rel="noreferrer">📷 voir la photo</a>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!confirming
+          ? <button className="btn-finish" onClick={()=>setConfirming(true)}>Valider la réception</button>
+          : (
+            <div className="recap-card">
+              <div className="warn-box">Attention : une fois validée, la réception est enregistrée définitivement et ne peut plus être corrigée. En cas d'erreur, il faudra refaire une nouvelle saisie.</div>
+              <div style={{fontWeight:700, marginBottom:10}}>Voulez-vous valider ?</div>
+              <div className="modal-actions">
+                <button className="btn-cancel" onClick={()=>setConfirming(false)} disabled={busy}>NON</button>
+                <button className="btn-confirm" onClick={validate} disabled={busy}>{busy?"…":"OUI, valider"}</button>
+              </div>
+              {err && <div className="err" style={{textAlign:"left"}}>{err}</div>}
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
+/* ============================== ADMIN =============================== */
+function AdminScreen({ onExit }){
+  const [tab,setTab]=useState("load");
+  return (
+    <div className="app">
+      <div className="header"><div className="header-row">
+        <div><h1>Admin — {STORE.label}</h1><div className="sub">Responsable · chargement & suivi</div></div>
+        <button className="header-btn" onClick={onExit}>Sortir</button>
+      </div></div>
+      <div className="tabs-bar">
+        <button className={"tab"+(tab==="load"?" active":"")} onClick={()=>setTab("load")}>Charger</button>
+        <button className={"tab"+(tab==="recs"?" active":"")} onClick={()=>setTab("recs")}>Réceptions</button>
+        <button className={"tab"+(tab==="docs"?" active":"")} onClick={()=>setTab("docs")}>Documents</button>
+        <button className={"tab"+(tab==="msg"?" active":"")} onClick={()=>setTab("msg")}>Message</button>
+      </div>
+      {tab==="load" && <AdminLoad/>}
+      {tab==="recs" && <AdminReceptions/>}
+      {tab==="docs" && <AdminDocs/>}
+      {tab==="msg" && <AdminBroadcast/>}
+      <div className="small-note" style={{padding:"4px 14px 14px"}}>La gestion des vendeurs (codes) se fait dans la page super-admin réservée au gérant.</div>
+    </div>
+  );
+}
+
+function AdminLoad(){
+  const [parsed,setParsed]=useState(null);
+  const [supplier,setSupplier]=useState("");
+  const [docType,setDocType]=useState("BL");
+  const [deliveryDate,setDeliveryDate]=useState("");
+  const [err,setErr]=useState(""); const [busy,setBusy]=useState(false); const [msg,setMsg]=useState("");
+  const fileRef=useRef();
+  const fmtFr=(iso)=>{ if(!iso) return ""; const [y,m,d]=iso.split("-"); return d+"/"+m+"/"+y; };
+
+  const onFile=async(e)=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    setErr(""); setMsg(""); setBusy(true);
+    try{
+      const r=await parseAnyFile(f);
+      if(!r.lines.length){ setErr("Aucune ligne détectée. Vérifie le format du fichier."); setBusy(false); return; }
+      setParsed(r); if(r.supplier) setSupplier(r.supplier);
+    }catch(ex){ setErr("Erreur lecture : "+ex.message); }
+    setBusy(false);
+  };
+
+  const save=async()=>{
+    if(!parsed) return; if(!db){ setErr("Firebase non configuré."); return; }
+    setBusy(true); setErr("");
+    try{
+      const ref=db.ref("documents").push();
+      await ref.set({ docNumber:parsed.docNumber||"(sans n°)", supplier:supplier.trim()||"(fournisseur ?)",
+        type:docType, format:parsed.format, deliveryDate:fmtFr(deliveryDate),
+        createdAt:firebase.database.ServerValue.TIMESTAMP, lines:parsed.lines });
+      setMsg("Document chargé ✓ Il est visible par le magasin.");
+      setParsed(null); setSupplier(""); setDeliveryDate(""); if(fileRef.current) fileRef.current.value="";
+    }catch(ex){ setErr("Erreur enregistrement : "+ex.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="list-wrap">
+      <div className="upload-zone" onClick={()=>fileRef.current&&fileRef.current.click()}>
+        <div className="icon">⬆️</div>
+        <div className="label">Charger un fichier BL</div>
+        <div className="hint">CSV (Elibio), TXT tabulé, ou PDF (Vitafrais)</div>
+        <input ref={fileRef} type="file" accept=".csv,.txt,.pdf" style={{display:"none"}} onChange={onFile}/>
+      </div>
+      {busy && <div className="small-note">Lecture…</div>}
+      {err && <div className="err" style={{textAlign:"left"}}>{err}</div>}
+      {msg && <div style={{color:"#2e7d32",fontWeight:600,margin:"10px 0"}}>{msg}</div>}
+
+      {parsed && (
+        <div style={{marginTop:14}}>
+          <div className="field"><label>Fournisseur</label>
+            <input value={supplier} onChange={e=>setSupplier(e.target.value)} placeholder="Ex : Elibio, Biodis, Vitafrais…"/></div>
+          <div className="field"><label>Type de document</label>
+            <select value={docType} onChange={e=>setDocType(e.target.value)}>
+              <option>BL</option><option>Facture</option><option>Doc</option></select></div>
+          <div className="field"><label>Livraison prévue (date)</label>
+            <input type="date" value={deliveryDate} onChange={e=>setDeliveryDate(e.target.value)}/></div>
+          <div className="small-note">N° détecté : <b>{parsed.docNumber||"—"}</b> · Format : {parsed.format} · {parsed.lines.length} lignes{parsed.skipped?` · ${parsed.skipped} ligne(s) ignorée(s)`:""}</div>
+          <div style={{maxHeight:300,overflow:"auto",marginTop:10,border:"1px solid #e6e8ec",borderRadius:8}}>
+            <table className="prev-table"><thead><tr><th>Article</th><th>Désignation</th><th>EAN</th><th>Attendu</th></tr></thead>
+              <tbody>{parsed.lines.slice(0,300).map((l,i)=>(
+                <tr key={i} style={l.nonLivre?{opacity:.5}:null}>
+                  <td>{l.article}</td><td>{l.designation}</td><td>{l.ean}</td><td>{l.nonLivre?"(non livré)":l.attendu}</td></tr>))}</tbody></table>
+          </div>
+          <button className="btn-primary" style={{marginTop:12}} onClick={save} disabled={busy}>Enregistrer ce document</button>
+          <div className="small-note">Rappel CDC : les prix d'achat ne sont jamais enregistrés ni affichés côté magasin.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminReceptions(){
+  const [recs,setRecs]=useState([]);
+  const [sel,setSel]=useState(null);
+  useEffect(()=>{ if(!db) return; const r=db.ref("receptions"); const cb=s=>{
+    const v=s.val()||{}; setRecs(Object.entries(v).map(([id,d])=>({id,...d})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)));
+  }; r.on("value",cb); return ()=>r.off("value",cb); },[]);
+
+  const exportXLSX=()=>{
+    const validated=recs.filter(r=>r.status==="validated");
+    const ecartsRows=[["Numéro enregistrement","Nom APP","Numéro document","Date Réception","Code article","Texte reçu","Photo reçu (lien)"]];
+    const recRows=[["Date réception","Heure validation","Dépôt","Numéro BL","Nom fournisseur","Code réception","Ecarts (o/n)","Ecarts (n°)","Fichier réception"]];
+    validated.forEach(r=>{
+      const d=new Date(r.validatedAt||r.createdAt);
+      const dateStr=d.toLocaleDateString("fr-FR"); const heure=d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+      const ecarts=r.ecarts||[];
+      ecarts.forEach(e=>{ ecartsRows.push([e.num, r.appName||STORE.appName, r.docNumber, dateStr, e.article, e.text||"", e.photo||""]); });
+      recRows.push([dateStr, heure, r.storeLabel||STORE.label, r.docNumber, r.supplier, r.operatorCode,
+        ecarts.length?"Oui":"Non", ecarts.map(e=>e.num).join("; "), ""]);
+    });
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ecartsRows), "Ecarts");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recRows), "Réceptions");
+    XLSX.writeFile(wb, "receptions_"+STORE.code+"_"+new Date().toISOString().slice(0,10)+".xlsx");
+  };
+
+  if(sel) return <AdminRecDetail rec={sel} onBack={()=>setSel(null)}/>;
+  return (
+    <div className="list-wrap">
+      <button className="btn-secondary" onClick={exportXLSX} style={{marginBottom:10}}>⬇️ Exporter Excel (Ecarts + Réceptions)</button>
+      {recs.length===0 && <div className="small-note">Aucune réception.</div>}
+      {recs.map(r=>(
+        <div key={r.id} className="doc-card" onClick={()=>setSel(r)}>
+          <div className="t">{r.supplier} {r.docNumber}</div>
+          <div className="m">
+            <span className={"badge "+(r.status==="validated"?"valid":"draft")}>{r.status==="validated"?"Validée":"En cours"}</span>
+            <span>{r.storeLabel}</span>
+            <span>{fmtDate(r.status==="validated"?r.validatedAt:r.updatedAt||r.createdAt)}</span>
+            {r.ecartCount>0 && <span className="badge info">{r.ecartCount} écart(s)</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AdminRecDetail({ rec, onBack }){
+  const lines=Object.values(rec.lines||{});
+  return (
+    <div className="list-wrap">
+      <button className="btn-secondary" onClick={onBack} style={{marginBottom:10}}>← Retour</button>
+      <div className="recap-card">
+        <h3>{rec.supplier} {rec.docNumber}</h3>
+        <div className="recap-stat"><span className="label">Statut</span><span className="value">{rec.status==="validated"?"Validée (figée)":"En cours"}</span></div>
+        <div className="recap-stat"><span className="label">Réception</span><span className="value">{rec.storeLabel}</span></div>
+        <div className="recap-stat"><span className="label">Validée le</span><span className="value">{fmtDate(rec.validatedAt)}</span></div>
+      </div>
+      <table className="prev-table"><thead><tr><th>Article</th><th>Désignation</th><th>Attendu</th><th>Statut</th><th>Reçu</th><th>Écart</th></tr></thead>
+        <tbody>{lines.map((l,i)=>(<tr key={i} style={l.status==="ecart"?{background:"#fff3e0"}:null}>
+          <td>{l.article}</td><td>{l.designation}</td><td>{l.attendu}</td>
+          <td>{l.status||"—"}</td><td>{l.reel!=null?l.reel:""}</td><td>{l.ecartText||""}</td></tr>))}</tbody></table>
+    </div>
+  );
+}
+
+function AdminDocs(){
+  const [docs,setDocs]=useState([]);
+  useEffect(()=>{ if(!db) return; const r=db.ref("documents"); const cb=s=>{
+    const v=s.val()||{}; setDocs(Object.entries(v).map(([id,d])=>({id,...d})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)));
+  }; r.on("value",cb); return ()=>r.off("value",cb); },[]);
+  const del=async(d)=>{ if(confirm("Supprimer le document "+d.docNumber+" ?")) await db.ref("documents/"+d.id).remove(); };
+  return (
+    <div className="list-wrap">
+      {docs.length===0 && <div className="small-note">Aucun document chargé.</div>}
+      {docs.map(d=>(
+        <div key={d.id} className="doc-card">
+          <div className="t">{d.supplier} — {d.type} {d.docNumber}</div>
+          <div className="m"><span className="badge info">{d.format}</span><span>{(d.lines||[]).length} lignes</span><span>{fmtDate(d.createdAt)}</span>
+            <button className="header-btn" style={{background:"#fdecea",color:"#c62828"}} onClick={()=>del(d)}>Supprimer</button></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Message push : le responsable écrit un message ; tous les vendeurs de CE magasin
+// voient un popup à fermer par validation. (Ciblé par nature : chaque magasin sa base.)
+function AdminBroadcast(){
+  const [current,setCurrent]=useState(null);
+  const [text,setText]=useState("");
+  const [msg,setMsg]=useState("");
+  useEffect(()=>{ if(!db) return; const r=db.ref("broadcast"); const cb=s=>setCurrent(s.val()); r.on("value",cb); return ()=>r.off("value",cb); },[]);
+  const send=async()=>{
+    if(!text.trim()) return;
+    await db.ref("broadcast").set({ id:String(Date.now()), message:text.trim(), at:firebase.database.ServerValue.TIMESTAMP });
+    setText(""); setMsg("Message envoyé aux vendeurs de "+STORE.label+".");
+  };
+  const clear=async()=>{ await db.ref("broadcast").remove(); setMsg("Message retiré."); };
+  return (
+    <div className="list-wrap">
+      <div className="recap-card">
+        <h3>Message aux vendeurs — {STORE.label}</h3>
+        <div className="small-note" style={{marginBottom:8}}>S'affiche en popup chez tous les vendeurs de ce magasin. Ils doivent le valider pour le fermer. Ex : « Vous n'aurez pas les yaourts X aujourd'hui, c'est normal. »</div>
+        <textarea rows={4} value={text} onChange={e=>setText(e.target.value)} placeholder="Votre message…" style={{width:"100%",padding:12,fontSize:15,border:"1.5px solid #ddd",borderRadius:8}}></textarea>
+        <button className="btn-primary" style={{marginTop:10}} onClick={send}>Envoyer à {STORE.label}</button>
+        {msg && <div style={{color:"#2e7d32",fontWeight:600,marginTop:8}}>{msg}</div>}
+      </div>
+      {current && current.message && (
+        <div className="recap-card">
+          <h3>Message actif</h3>
+          <div className="push-msg">{current.message}</div>
+          <button className="btn-secondary" onClick={clear}>Retirer le message</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================== ROOT =============================== */
+function App(){
+  const connected=useConnection();
+  const [operator,setOperator]=useState(null);
+  const [view,setView]=useState("login"); // login | home | reception | recap | admin
+  const [ctx,setCtx]=useState({}); // {doc, reception} pour reception ; {recId,lineStates,activeLines,doc} pour recap
+  const [showLogout,setShowLogout]=useState(false);
+  const [bc,setBc]=useState(null);
+  const [bcAck,setBcAck]=useState(()=>{ try{ return localStorage.getItem("pribon_bc_ack")||""; }catch(e){ return ""; } });
+
+  useEffect(()=>{ if(!db) return; const r=db.ref("broadcast"); const cb=s=>setBc(s.val()); r.on("value",cb); return ()=>r.off("value",cb); },[]);
+  const ackBroadcast=()=>{ if(bc&&bc.id){ try{ localStorage.setItem("pribon_bc_ack",bc.id); }catch(e){} setBcAck(bc.id); } };
+  const doLogout=()=>{ setShowLogout(false); setCtx({}); setOperator(null); setView("login"); };
+  const showBroadcast = operator && bc && bc.message && bc.id && bc.id!==bcAck && view!=="login" && view!=="admin";
+
+  const configMissing = FIREBASE_CONFIG.databaseURL.includes("__A_REMPLIR__");
+
+  if(configMissing){
+    return (
+      <div className="screen-center">
+        <div className="logo">📦 {STORE.appName}</div>
+        <div className="card">
+          <h3 style={{marginTop:0}}>Configuration requise</h3>
+          <div className="small-note" style={{fontSize:13}}>
+            Renseigne <b>FIREBASE_CONFIG</b> (et éventuellement <b>APPS_SCRIPT_URL</b>) en haut du fichier,
+            puis recharge. Voir le README fourni.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {view!=="login" && (
+        <div style={{position:"fixed",top:6,right:8,zIndex:50}}>
+          <span className={"conn-status"+(connected?"":" offline")} style={{color:"#fff",background:connected?"#2e7d32":"#d32f2f"}}>{connected?"● en ligne":"○ hors ligne"}</span>
+        </div>
+      )}
+
+      {view==="login" && <LoginScreen
+        onOperator={(op)=>{ setOperator(op); setView("home"); }}
+        onAdmin={()=>setView("admin")}/>}
+
+      {view==="home" && operator && <HomeScreen operator={operator}
+        onOpenReception={(doc,reception)=>{ setCtx({doc,reception}); setView("reception"); }}
+        onOpenDoc={(rec)=>{ // ouvrir une réception existante : besoin du doc
+          db.ref("documents/"+rec.docId).get().then(s=>{ const d=s.val();
+            setCtx({ doc:d?{id:rec.docId,...d}:{id:rec.docId,docNumber:rec.docNumber,supplier:rec.supplier,lines:Object.values(rec.lines||{}).map(x=>({article:x.article,designation:x.designation,attendu:x.attendu,ean:"",marque:""}))}, reception:rec });
+            setView("reception"); });
+        }}
+        onAfterValidate={()=>setShowLogout(true)}
+        onLogout={()=>{ setOperator(null); setView("login"); }}/>}
+
+      {view==="reception" && operator && ctx.doc && <ReceptionScreen operator={operator} doc={ctx.doc} reception={ctx.reception}
+        onExit={()=>setView("home")}
+        onGoRecap={({id,lineStates,activeLines})=>{ setCtx(c=>({...c, recId:id, lineStates, activeLines})); setView("recap"); }}/>}
+
+      {view==="recap" && operator && ctx.doc && <RecapScreen operator={operator} doc={ctx.doc}
+        recId={ctx.recId} lineStates={ctx.lineStates} activeLines={ctx.activeLines}
+        onBack={()=>setView("reception")}
+        onValidated={()=>{ setCtx({}); setView("home"); setShowLogout(true); }}/>}
+
+      {view==="admin" && <AdminScreen onExit={()=>setView("login")}/>}
+
+      {showLogout && (
+        <div className="modal-backdrop">
+          <div className="modal" style={{textAlign:"center"}}>
+            <div style={{fontSize:40}}>✅</div>
+            <h3>Réception validée</h3>
+            <div className="sub">Avez-vous terminé vos réceptions ?<br/><b>Pensez à vous déconnecter</b> pour que personne n'utilise votre code.</div>
+            <div className="modal-actions">
+              <button className="btn-cancel" onClick={()=>setShowLogout(false)}>Rester connecté</button>
+              <button className="btn-confirm" onClick={doLogout}>Me déconnecter</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBroadcast && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h3>📢 Message du responsable</h3>
+            <div className="push-msg">{bc.message}</div>
+            <button className="btn-primary" onClick={ackBroadcast}>J'ai compris</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+const rootEl=document.getElementById("root");
+const bs=document.getElementById("boot-screen"); if(bs) bs.remove();
+ReactDOM.createRoot(rootEl).render(<App/>);
+</script>
+</body>
+</html>
