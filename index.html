@@ -146,6 +146,7 @@ function __cdnFB(u){ document.write('<scr'+'ipt src="'+u+'"></scr'+'ipt>'); }
     background:#1a4d2e; color:#fff; border:none; border-radius:10px; padding:14px 16px;
     font-size:15px; font-weight:800; margin:14px 0 8px; position:sticky; top:112px; z-index:4; box-shadow:0 2px 6px rgba(0,0,0,.12); }
   .cat-head:active { background:#0d3d20; }
+  .cat-head.done-head { background:#2e7d32; }
   .cat-name { letter-spacing:.3px; }
   .cat-count { font-size:13px; opacity:.9; font-weight:700; display:flex; align-items:center; gap:8px; }
   .cat-count .chev { font-size:14px; }
@@ -208,16 +209,11 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // >>> À REMPLIR avec la config de TON projet Firebase PRIBON (voir README) <<<
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAe-oMdObRk0_JSMHK7F4Mgqo7yMrHEK5g",
-
-  authDomain: "robespierre-65cdf.firebaseapp.com",
-
-  databaseURL: "https://robespierre-65cdf-default-rtdb.europe-west1.firebasedatabase.app",
-
-  projectId: "robespierre-65cdf",
-
-  appId: "1:870656040014:web:8a33269cc4bc348145771f"
-
+  apiKey:      "__A_REMPLIR__",
+  authDomain:  "__A_REMPLIR__",
+  databaseURL: "__A_REMPLIR__",          // ex: https://pribon-reception-default-rtdb.europe-west1.firebasedatabase.app
+  projectId:   "__A_REMPLIR__",
+  appId:       "__A_REMPLIR__"
 };
 
 // UNE app + UNE base Firebase par dépôt. Pour dupliquer : changer ce bloc + FIREBASE_CONFIG.
@@ -229,7 +225,7 @@ const LOGO_URL = "https://static.wixstatic.com/media/bbaec6_145fdeb1127d41eab38b
 // Le RESPONSABLE (entrepôt) ouvre l'espace admin via CONNEXION GOOGLE (pas de code).
 // La liste des emails autorisés est côté serveur (RESPONSABLE_EMAILS dans l'Apps Script).
 // Client ID OAuth Google (le MÊME que superadmin.html). Voir README étape C.
-const OAUTH_CLIENT_ID = "757658680772-ogalpu5olqd2fiovnbnj55j1g0lbq7rr.apps.googleusercontent.com";
+const OAUTH_CLIENT_ID = "__CLIENT_ID.apps.googleusercontent.com__";
 
 // Repo admin central (contient reception.html = console responsable, et superadmin.html = gérant).
 // Les liens discrets "Admin" et "Master" de la page de connexion pointent ici.
@@ -237,10 +233,10 @@ const ADMIN_BASE = "https://pribon.github.io/admin/";
 
 // Webhook Google Apps Script central (validation des codes vendeur + mail + Sheet + photos).
 // LE MÊME pour tous les magasins. Voir apps_script_reception.gs
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzSMWziEuPvxY6UvM6FimJlFCTE1v9u1mWh3gJXbOtMVlHcb478_gASeIwZ1PMEw7-2Sw/exec";
+const APPS_SCRIPT_URL = "__A_REMPLIR__";
 
 // Adresse d'info (le destinataire réel du récap est défini côté Apps Script)
-const ADMIN_EMAIL = "hg@probon.fr";
+const ADMIN_EMAIL = "hummdonuts@gmail.com";
 
 /* ===================================================================== */
 
@@ -635,6 +631,59 @@ function HomeScreen({ operator, onOpenDoc, onOpenReception, onLogout, onAfterVal
   );
 }
 
+/* ======================== SCANNER CODE-BARRES =========================== */
+function loadScript(src){ return new Promise((res,rej)=>{ if(document.querySelector('script[data-dyn="'+src+'"]')){res();return;} const s=document.createElement('script'); s.src=src; s.async=true; s.setAttribute('data-dyn',src); s.onload=()=>res(); s.onerror=()=>rej(new Error('load '+src)); document.head.appendChild(s); }); }
+const ZXING_SRC='https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+function ScanModal({ onCode, onClose }){
+  const videoRef=useRef(); const streamRef=useRef(); const zxRef=useRef(); const timerRef=useRef(); const lastRef=useRef({c:"",t:0});
+  const [status,setStatus]=useState("init"); const [err,setErr]=useState("");
+  const FORMATS=['ean_13','ean_8','upc_a','upc_e','code_128','code_39'];
+  const emit=(raw)=>{ const code=String(raw||"").trim(); if(!code) return; const now=Date.now();
+    if(code===lastRef.current.c && now-lastRef.current.t<1500) return; lastRef.current={c:code,t:now};
+    try{ navigator.vibrate&&navigator.vibrate(60); }catch(e){} onCode(code); };
+  useEffect(()=>{ let cancelled=false;
+    (async()=>{
+      try{
+        const stream=await navigator.mediaDevices.getUserMedia({ video:{facingMode:{ideal:'environment'}}, audio:false });
+        if(cancelled){ stream.getTracks().forEach(t=>t.stop()); return; }
+        streamRef.current=stream; const v=videoRef.current; v.srcObject=stream; v.setAttribute('playsinline','true'); v.muted=true; await v.play().catch(()=>{});
+        let supported=[]; if('BarcodeDetector' in window){ try{ supported=await window.BarcodeDetector.getSupportedFormats(); }catch(e){} }
+        if(supported.length && FORMATS.some(f=>supported.includes(f))){
+          const det=new window.BarcodeDetector({ formats:FORMATS.filter(f=>supported.includes(f)) });
+          setStatus("run");
+          const tick=async()=>{ if(cancelled) return; try{ const codes=await det.detect(v); if(codes&&codes.length) emit(codes[0].rawValue); }catch(e){} timerRef.current=setTimeout(tick,180); };
+          tick();
+        } else {
+          await loadScript(ZXING_SRC); if(cancelled) return; const ZX=window.ZXing;
+          if(!ZX||!ZX.BrowserMultiFormatReader) throw new Error("Lecteur indisponible");
+          const reader=new ZX.BrowserMultiFormatReader(); zxRef.current=reader; setStatus("run");
+          reader.decodeFromStream(stream, v, (result)=>{ if(!cancelled&&result) emit(result.getText?result.getText():result.text); }).catch(()=>{});
+        }
+      }catch(e){ if(!cancelled){ setStatus("err"); setErr(e.name==='NotAllowedError'?"Caméra refusée. Autorise la caméra dans le navigateur.":(e.message||String(e))); } }
+    })();
+    return ()=>{ cancelled=true; if(timerRef.current) clearTimeout(timerRef.current); try{ zxRef.current&&zxRef.current.reset(); }catch(e){} try{ const s=streamRef.current; if(s) s.getTracks().forEach(t=>t.stop()); }catch(e){} };
+  },[]);
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <h3>Scanner un code-barres</h3>
+        <div style={{position:"relative",width:"100%",borderRadius:10,overflow:"hidden",background:"#000",aspectRatio:"4 / 3"}}>
+          <video ref={videoRef} muted playsInline style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+            <div style={{width:"74%",height:"30%",border:"2px solid rgba(255,255,255,.9)",borderRadius:10}}/>
+          </div>
+        </div>
+        <div className="small-note" style={{marginTop:8}}>
+          {status==="init"&&"Démarrage de la caméra…"}
+          {status==="run"&&"Vise un code-barres — l'article correspondant apparaît dans la liste."}
+          {status==="err"&&("⚠️ "+err)}
+        </div>
+        <button className="btn-secondary" onClick={onClose}>Fermer</button>
+      </div>
+    </div>
+  );
+}
+
 /* ======================== ÉCRAN RÉCEPTION =========================== */
 function EcartModal({ line, current, onSave, onClose }){
   const [reel,setReel]=useState(current && current.reel!=null ? String(current.reel) : String(line.attendu));
@@ -732,9 +781,9 @@ function ReceptionScreen({ operator, doc, reception, onExit, onGoRecap }){
   const [search,setSearch]=useState("");
   const [ecartFor,setEcartFor]=useState(null); // {line, lk}
   const [toast,setToast]=useState("");
-  const [collapsed,setCollapsed]=useState({});  // catégories repliées
+  const [scanOpen,setScanOpen]=useState(false); // scanner code-barres
+  const [showDone,setShowDone]=useState(false); // encart "Réceptionné" replié
   const readOnly = reception && reception.status==="validated";
-  const savingRef=useRef(false);
 
   const activeLines = useMemo(()=> (doc.lines||[]).filter(l=>!l.nonLivre), [doc]);
   const nonLivres = useMemo(()=> (doc.lines||[]).filter(l=>l.nonLivre), [doc]);
@@ -754,28 +803,41 @@ function ReceptionScreen({ operator, doc, reception, onExit, onGoRecap }){
     return ()=>{ cancelled=true; };
   },[]);
 
-  const persist=useCallback(async(next)=>{
-    setLineStates(next);
+  // Live : suit les pointages des autres vendeurs sur la MÊME réception, en temps réel.
+  useEffect(()=>{ if(!db || !recId || readOnly) return;
+    const r=db.ref("receptions/"+recId+"/lines");
+    const cb=s=>setLineStates(s.val()||{});
+    r.on("value",cb); return ()=>r.off("value",cb);
+  },[recId,readOnly]);
+
+  // Écriture PAR LIGNE : deux vendeurs peuvent pointer la même réception sans s'écraser.
+  const persistLine=useCallback(async(lk,obj)=>{
+    setLineStates(prev=>({ ...prev, [lk]:obj }));
     if(readOnly || !recId || !db) return;
-    if(savingRef.current) return;
-    savingRef.current=true;
-    try{ await db.ref("receptions/"+recId).update({ lines:next, updatedAt:firebase.database.ServerValue.TIMESTAMP }); }
-    finally{ savingRef.current=false; }
+    try{
+      await db.ref("receptions/"+recId+"/lines/"+lk).set(obj);
+      await db.ref("receptions/"+recId).update({ updatedAt:firebase.database.ServerValue.TIMESTAMP });
+    }catch(e){}
+  },[recId,readOnly]);
+  const clearLine=useCallback(async(lk)=>{
+    setLineStates(prev=>{ const n={...prev}; delete n[lk]; return n; });
+    if(readOnly || !recId || !db) return;
+    try{ await db.ref("receptions/"+recId+"/lines/"+lk).remove(); }catch(e){}
   },[recId,readOnly]);
 
   const setConforme=(line,lk)=>{
-    const next={ ...lineStates, [lk]:{ status:"conforme", reel:line.attendu, article:line.article, designation:line.designation, attendu:line.attendu } };
-    persist(next); setToast("Conforme : "+line.designation); setTimeout(()=>setToast(""),1200);
+    persistLine(lk,{ status:"conforme", reel:line.attendu, article:line.article, ean:line.ean||"", designation:line.designation, attendu:line.attendu });
+    setToast("Conforme : "+line.designation); setTimeout(()=>setToast(""),1200);
   };
   const saveEcart=(line,lk,data)=>{
-    const next={ ...lineStates, [lk]:{ status:"ecart", reel:data.reel, ecartText:data.ecartText, photoUrl:data.photoUrl||"",
-      article:line.article, designation:line.designation, attendu:line.attendu } };
-    persist(next); setEcartFor(null);
+    persistLine(lk,{ status:"ecart", reel:data.reel, ecartText:data.ecartText, photoUrl:data.photoUrl||"",
+      article:line.article, ean:line.ean||"", designation:line.designation, attendu:line.attendu });
+    setEcartFor(null);
   };
   const setNonRecu=(line,lk)=>{
-    const next={ ...lineStates, [lk]:{ status:"nonrecu", reel:0, ecartText:"NON REÇU",
-      article:line.article, designation:line.designation, attendu:line.attendu } };
-    persist(next); setToast("Pas reçu : "+line.designation); setTimeout(()=>setToast(""),1200);
+    persistLine(lk,{ status:"nonrecu", reel:0, ecartText:"NON REÇU",
+      article:line.article, ean:line.ean||"", designation:line.designation, attendu:line.attendu });
+    setToast("Pas reçu : "+line.designation); setTimeout(()=>setToast(""),1200);
   };
 
   const filtered=useMemo(()=>{
@@ -792,13 +854,9 @@ function ReceptionScreen({ operator, doc, reception, onExit, onGoRecap }){
   const doneCount = activeLines.reduce((n,l,i)=> n + (lineStates[lineKey(l,i)]?.status?1:0), 0);
   const ecartCount = activeLines.reduce((n,l,i)=> { const s=lineStates[lineKey(l,i)]?.status; return n + (s==="ecart"||s==="nonrecu"?1:0); }, 0);
 
-  // Regroupement par catégorie (rayon), pour une navigation à une main
-  const groups = useMemo(()=>{
-    const map=new Map();
-    filtered.forEach(l=>{ const cat=(l.categorie||"Autres"); if(!map.has(cat)) map.set(cat,[]); map.get(cat).push(l); });
-    return Array.from(map.entries());
-  },[filtered]);
-  const catDone=(lines)=>lines.reduce((n,l)=> n + (lineStates[lineKey(l,activeLines.indexOf(l))]?.status?1:0), 0);
+  // Liste simple (SANS tri par catégorie) : uniquement les lignes non encore pointées.
+  const todo = useMemo(()=> filtered.filter(l=> !lineStates[lineKey(l,activeLines.indexOf(l))]?.status), [filtered,lineStates,activeLines]);
+  const doneList = useMemo(()=> activeLines.filter(l=> lineStates[lineKey(l,activeLines.indexOf(l))]?.status), [activeLines,lineStates]);
 
   return (
     <div className="app">
@@ -808,27 +866,43 @@ function ReceptionScreen({ operator, doc, reception, onExit, onGoRecap }){
         <button className="header-btn" onClick={onExit}>Accueil</button>
       </div></div>
 
-      <div className="search-bar">
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher : mot-clé, marque, 4 derniers chiffres EAN…"/>
+      <div className="search-bar" style={{display:"flex",gap:8}}>
+        <input style={{flex:1}} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher : mot-clé, marque, EAN…"/>
+        {!readOnly && <button className="header-btn" style={{background:"#1a4d2e",color:"#fff",padding:"0 14px",fontSize:20,borderRadius:8}} onClick={()=>setScanOpen(true)} title="Scanner un code-barres">📷</button>}
+        {search && <button className="header-btn" style={{background:"#eef2f7",color:"#333"}} onClick={()=>setSearch("")}>✕</button>}
       </div>
 
+      {scanOpen && <ScanModal onCode={(code)=>{ setSearch(code); setScanOpen(false); }} onClose={()=>setScanOpen(false)}/>}
+
       <div className="product-list">
-        {groups.map(([cat,lines])=>{
-          const isCol=collapsed[cat]; const done=catDone(lines);
-          return (
-            <div key={cat}>
-              <button className="cat-head" onClick={()=>setCollapsed(c=>({...c,[cat]:!c[cat]}))}>
-                <span className="cat-name">{cat}</span>
-                <span className="cat-count">{done}/{lines.length}<span className="chev">{isCol?"▸":"▾"}</span></span>
-              </button>
-              {!isCol && lines.map((l,i)=>{ const lk=lineKey(l, activeLines.indexOf(l));
-                return <ProductCard key={lk+"_"+i} line={l} lk={lk} state={lineStates[lk]} readOnly={readOnly}
-                  onConforme={()=>setConforme(l,lk)} onEcart={()=>setEcartFor({line:l,lk})} onNonRecu={()=>setNonRecu(l,lk)}/>;
-              })}
-            </div>
-          );
+        {todo.map((l,i)=>{ const lk=lineKey(l, activeLines.indexOf(l));
+          return <ProductCard key={lk+"_"+i} line={l} lk={lk} state={lineStates[lk]} readOnly={readOnly}
+            onConforme={()=>setConforme(l,lk)} onEcart={()=>setEcartFor({line:l,lk})} onNonRecu={()=>setNonRecu(l,lk)}/>;
         })}
-        {filtered.length===0 && <div className="small-note" style={{padding:16}}>Aucun article ne correspond.</div>}
+        {todo.length===0 && <div className="small-note" style={{padding:16}}>{doneList.length>0?"Tout est pointé ✓ — vérifie l'encart Réceptionné puis valide.":"Aucun article à pointer."}</div>}
+
+        {doneList.length>0 && (
+          <div style={{marginTop:16}}>
+            <button className="cat-head done-head" onClick={()=>setShowDone(v=>!v)}>
+              <span className="cat-name">✓ Réceptionné ({doneList.length})</span>
+              <span className="cat-count"><span className="chev">{showDone?"▾":"▸"}</span></span>
+            </button>
+            {showDone && doneList.map((l)=>{ const lk=lineKey(l,activeLines.indexOf(l)); const st=lineStates[lk]||{};
+              const clsx="product-card "+(st.status==="conforme"?"conforme":st.status==="nonrecu"?"nonrecu":"ecart");
+              return (
+                <div key={"d"+lk} className={clsx}>
+                  <div className="designation">{l.designation}</div>
+                  <div className="line-state">
+                    {st.status==="conforme"?<span>✓ Conforme — <b>{st.reel!=null?st.reel:l.attendu}</b></span>
+                     :st.status==="nonrecu"?<span>✗ <b>Pas reçu</b></span>
+                     :<span>⚠ Écart — reçu <b>{st.reel}</b>{st.ecartText?" — "+st.ecartText:""}{st.photoUrl && <a href={st.photoUrl} target="_blank" rel="noreferrer" style={{marginLeft:8}}>📷</a>}</span>}
+                  </div>
+                  {!readOnly && <button className="btn-secondary" style={{marginTop:8}} onClick={()=>clearLine(lk)}>Corriger</button>}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {nonLivres.length>0 && (
           <div style={{marginTop:16}}>
