@@ -208,16 +208,11 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // >>> À REMPLIR avec la config de TON projet Firebase PRIBON (voir README) <<<
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAe-oMdObRk0_JSMHK7F4Mgqo7yMrHEK5g",
-
-  authDomain: "robespierre-65cdf.firebaseapp.com",
-
-  databaseURL: "https://robespierre-65cdf-default-rtdb.europe-west1.firebasedatabase.app",
-
-  projectId: "robespierre-65cdf",
-
-  appId: "1:870656040014:web:8a33269cc4bc348145771f"
-
+  apiKey:      "__A_REMPLIR__",
+  authDomain:  "__A_REMPLIR__",
+  databaseURL: "__A_REMPLIR__",          // ex: https://pribon-reception-default-rtdb.europe-west1.firebasedatabase.app
+  projectId:   "__A_REMPLIR__",
+  appId:       "__A_REMPLIR__"
 };
 
 // UNE app + UNE base Firebase par dépôt. Pour dupliquer : changer ce bloc + FIREBASE_CONFIG.
@@ -229,14 +224,18 @@ const LOGO_URL = "https://static.wixstatic.com/media/bbaec6_145fdeb1127d41eab38b
 // Le RESPONSABLE (entrepôt) ouvre l'espace admin via CONNEXION GOOGLE (pas de code).
 // La liste des emails autorisés est côté serveur (RESPONSABLE_EMAILS dans l'Apps Script).
 // Client ID OAuth Google (le MÊME que superadmin.html). Voir README étape C.
-const OAUTH_CLIENT_ID = "757658680772-ogalpu5olqd2fiovnbnj55j1g0lbq7rr.apps.googleusercontent.com";
+const OAUTH_CLIENT_ID = "__CLIENT_ID.apps.googleusercontent.com__";
+
+// Repo admin central (contient reception.html = console responsable, et superadmin.html = gérant).
+// Les liens discrets "Admin" et "Master" de la page de connexion pointent ici.
+const ADMIN_BASE = "https://pribon.github.io/admin/";
 
 // Webhook Google Apps Script central (validation des codes vendeur + mail + Sheet + photos).
 // LE MÊME pour tous les magasins. Voir apps_script_reception.gs
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzSMWziEuPvxY6UvM6FimJlFCTE1v9u1mWh3gJXbOtMVlHcb478_gASeIwZ1PMEw7-2Sw/exec";
+const APPS_SCRIPT_URL = "__A_REMPLIR__";
 
 // Adresse d'info (le destinataire réel du récap est défini côté Apps Script)
-const ADMIN_EMAIL = "hg@probon.fr";
+const ADMIN_EMAIL = "hummdonuts@gmail.com";
 
 /* ===================================================================== */
 
@@ -520,20 +519,11 @@ function LoginScreen({ onOperator, onAdmin }){
         <div className="small-note">Votre code personnel vous est communiqué par le gérant. Il ne fonctionne que dans ce magasin.</div>
       </div>
 
-      {/* Accès discrets : Admin (responsable) et Master (gérant / super-admin). */}
-      {!showAdmin
-        ? <div style={{marginTop:24,display:"flex",gap:18,justifyContent:"center"}}>
-            <button className="link-btn" style={{opacity:.4,fontSize:12}} onClick={()=>setShowAdmin(true)}>Admin</button>
-            <a className="link-btn" style={{opacity:.4,fontSize:12}} href="superadmin.html">Master</a>
-          </div>
-        : (
-          <div className="card" style={{marginTop:14}}>
-            {OAUTH_READY()
-              ? <ResponsableLogin onAuthed={onAdmin}/>
-              : <div className="small-note">Connexion responsable indisponible : OAUTH_CLIENT_ID non configuré.</div>}
-            <button className="btn-secondary" onClick={()=>setShowAdmin(false)}>Annuler</button>
-          </div>
-        )}
+      {/* Accès discrets vers le repo admin central (connexion Google là-bas). */}
+      <div style={{marginTop:24,display:"flex",gap:18,justifyContent:"center"}}>
+        <a className="link-btn" style={{opacity:.4,fontSize:12}} href={ADMIN_BASE+"reception.html"}>Admin</a>
+        <a className="link-btn" style={{opacity:.4,fontSize:12}} href={ADMIN_BASE+"superadmin.html"}>Master</a>
+      </div>
     </div>
   );
 }
