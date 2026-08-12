@@ -208,18 +208,12 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // >>> À REMPLIR avec la config de TON projet Firebase PRIBON (voir README) <<<
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAe-oMdObRk0_JSMHK7F4Mgqo7yMrHEK5g",
-
-  authDomain: "robespierre-65cdf.firebaseapp.com",
-
-  databaseURL: "https://robespierre-65cdf-default-rtdb.europe-west1.firebasedatabase.app",
-
-  projectId: "robespierre-65cdf",
-
-  appId: "1:870656040014:web:8a33269cc4bc348145771f"
-
+  apiKey:      "__A_REMPLIR__",
+  authDomain:  "__A_REMPLIR__",
+  databaseURL: "__A_REMPLIR__",          // ex: https://pribon-reception-default-rtdb.europe-west1.firebasedatabase.app
+  projectId:   "__A_REMPLIR__",
+  appId:       "__A_REMPLIR__"
 };
-
 
 // UNE app + UNE base Firebase par dépôt. Pour dupliquer : changer ce bloc + FIREBASE_CONFIG.
 const STORE = { code: "ROBESPIERRE", label: "Pribon Robespierre", appName: "PRIBON ROBESPIERRE" };
@@ -230,14 +224,14 @@ const LOGO_URL = "https://static.wixstatic.com/media/bbaec6_145fdeb1127d41eab38b
 // Le RESPONSABLE (entrepôt) ouvre l'espace admin via CONNEXION GOOGLE (pas de code).
 // La liste des emails autorisés est côté serveur (RESPONSABLE_EMAILS dans l'Apps Script).
 // Client ID OAuth Google (le MÊME que superadmin.html). Voir README étape C.
-const OAUTH_CLIENT_ID = "757658680772-ogalpu5olqd2fiovnbnj55j1g0lbq7rr.apps.googleusercontent.com";
+const OAUTH_CLIENT_ID = "__CLIENT_ID.apps.googleusercontent.com__";
 
 // Webhook Google Apps Script central (validation des codes vendeur + mail + Sheet + photos).
 // LE MÊME pour tous les magasins. Voir apps_script_reception.gs
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzSMWziEuPvxY6UvM6FimJlFCTE1v9u1mWh3gJXbOtMVlHcb478_gASeIwZ1PMEw7-2Sw/exec";
+const APPS_SCRIPT_URL = "__A_REMPLIR__";
 
 // Adresse d'info (le destinataire réel du récap est défini côté Apps Script)
-const ADMIN_EMAIL = "hg@probon.fr";
+const ADMIN_EMAIL = "hummdonuts@gmail.com";
 
 /* ===================================================================== */
 
@@ -559,6 +553,8 @@ function HomeScreen({ operator, onOpenDoc, onOpenReception, onLogout, onAfterVal
   },[]);
 
   const drafts = receptions.filter(r=>r.status!=="validated");
+  // Vendeur : un document VALIDÉ disparaît (déjà réceptionné). On ne montre que ceux à faire / en cours.
+  const openDocs = docs.filter(d=>{ const rec=receptions.find(r=>r.docId===d.id); return !rec || rec.status!=="validated"; });
   const activeCount = (d)=> (d && d.lines ? d.lines.filter(l=>!l.nonLivre).length : 0);
   const pointedCount = (recLines)=> Object.values(recLines||{}).filter(s=>s&&s.status).length;
   const docById = (id)=> docs.find(d=>d.id===id);
@@ -594,8 +590,8 @@ function HomeScreen({ operator, onOpenDoc, onOpenReception, onLogout, onAfterVal
       <div className="list-wrap">
         <h3 style={{margin:"6px 4px 8px"}}>Nouvelles réceptions</h3>
         {loading && <div className="small-note">Chargement des documents…</div>}
-        {!loading && docs.length===0 && <div className="small-note">Aucun document chargé. L'admin doit charger un BL depuis l'espace admin.</div>}
-        {docs.map(d=>{
+        {!loading && openDocs.length===0 && <div className="small-note">Aucune réception à faire. Tout est validé ✓</div>}
+        {openDocs.map(d=>{
           const already=receptions.find(r=>r.docId===d.id);
           return (
             <div key={d.id} className="doc-card big" onClick={()=>onOpenReception(d, already)}>
@@ -612,27 +608,26 @@ function HomeScreen({ operator, onOpenDoc, onOpenReception, onLogout, onAfterVal
           );
         })}
 
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"22px 4px 8px"}}>
-          <h3 style={{margin:0}}>Réceptions déjà faites</h3>
-          {drafts.length>1 && <button className="header-btn" style={{background:"#4caf50",color:"#fff"}} onClick={onValidateAll} disabled={busy}>Tout valider ({drafts.length})</button>}
-        </div>
-        {receptions.length===0 && <div className="small-note">Aucune réception pour ce magasin.</div>}
-        {receptions.map(r=>(
+        {drafts.length>0 && (
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"22px 4px 8px"}}>
+            <h3 style={{margin:0}}>Réceptions en cours</h3>
+            {drafts.length>1 && <button className="header-btn" style={{background:"#4caf50",color:"#fff"}} onClick={onValidateAll} disabled={busy}>Tout valider ({drafts.length})</button>}
+          </div>
+        )}
+        {drafts.map(r=>(
           <div key={r.id} className="doc-card">
             <div onClick={()=>onOpenDoc(r)}>
               <div className="t">{r.supplier} — {r.type||"BL"} {r.docNumber}</div>
               <div className="m">
-                <span className={"badge "+(r.status==="validated"?"valid":"draft")}>{r.status==="validated"?"Validée — figée":"En cours — modifiable"}</span>
-                <span>{fmtDate(r.status==="validated"?r.validatedAt:r.updatedAt||r.createdAt)}</span>
+                <span className="badge draft">En cours — modifiable</span>
+                <span>{fmtDate(r.updatedAt||r.createdAt)}</span>
               </div>
-              {r.status!=="validated" && <ProgressBar p={pointedCount(r.lines)} tot={activeCount(docById(r.docId))}/>}
+              <ProgressBar p={pointedCount(r.lines)} tot={activeCount(docById(r.docId))}/>
             </div>
-            {r.status!=="validated" && (
-              <div style={{display:"flex",gap:8,marginTop:10}}>
-                <button className="btn-conf" style={{flex:1}} onClick={()=>onOpenDoc(r)}>Modifier</button>
-                <button className="btn-finish" style={{flex:1,padding:12}} onClick={()=>onValidateOne(r)} disabled={busy}>Valider</button>
-              </div>
-            )}
+            <div style={{display:"flex",gap:8,marginTop:10}}>
+              <button className="btn-conf" style={{flex:1}} onClick={()=>onOpenDoc(r)}>Modifier</button>
+              <button className="btn-finish" style={{flex:1,padding:12}} onClick={()=>onValidateOne(r)} disabled={busy}>Valider</button>
+            </div>
           </div>
         ))}
       </div>
