@@ -411,7 +411,47 @@ function parsePDFLines(rowLines){
   return { docNumber, supplier, lines: out };
 }
 
-// Lit un PDF (ArrayBuffer) -> lignes visuelles groupées par y, puis parsePDFLines
+// --- Parseur PDF Biodis (mise en page différente de Vitafrais) ---
+function cleanDesBiodis(s){ return String(s||"").replace(/\s+(Non\s+Bio|Bio|Conv(?:ersion)?|Cosmebio|Ecocert)\s*$/i,"").trim(); }
+function parseBiodisPDF(rowLines){
+  const out=[]; let supplier="BIODIS", docNumber=""; let stopped=false;
+  const reU  = /^(\d{3,7})\s+(.+?)\s+(\d{13})\s+\d+\s+(\d+)\s+U\s+[\d.,]+\s+[\d.,]+\s+\d+\s*$/;      // ref certif EAN colis qté U prixU montant tva
+  const reKG = /^(\d{3,7})\s+(.+?)\s+(\d{13})\s+\d+\s+([\d.,]+)KG\s+[\d.,]+\s+[\d.,]+\s+\d+\s*$/;    // idem, quantité en KG
+  const reND = /^(\d{3,7})\s+(.+?)\s+(Non livr[ée]|Produit sur commande|Rupture fournisseur)\s+(\d+)\s+U\s*$/i; // non livré / sur commande / rupture
+  const isItemNum=(s)=>reU.test(s)||reKG.test(s);
+  // Lignes "meta" à ignorer (prix, DLC, lot, en-têtes, énergie, nombres isolés…)
+  const isMeta=(s)=>/^(Prix\b|DLC\b|DDM\b|Contribution\b|Lot\b|Sous-total\b|Commande n\b|SASU\b|NAF\b|No AGREMENT|www\.|http|BIO :|CONV\b|COSMEBIO|FR-BIO|Page \d|Poids\b|Date\b|Certification\b|Marque\b|Cat\.|TPF\b|TVA\b|Bon de Livraison|PRIBON|T[ée]l\.|Fax\b|e_mail|Site WEB|EAN\b|PRIX\b|Montant\b|Colis\b|UNITAIRE|H\.T\.|Scannez|Espace Pro|C'est Biodis|Vous pouvez|pr[ée]command|commerciales|Merci|ne pourrons|PARTICIPATION|prix indicatif|-{3,})/i.test(s) || /^[\d.,]+$/.test(String(s).trim());
+  for(let i=0;i<rowLines.length;i++){
+    const L=rowLines[i];
+    const doc=L.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{6,8})\s/); if(doc && !docNumber) docNumber=doc[2];
+    if(/Produits en arr[eê]t long|R[ée]f[ée]rence D[ée]s/i.test(L)){ stopped=true; continue; } // section "arrêts / remplacements" : on stoppe
+    if(stopped) continue;
+    let m;
+    if((m=L.match(reND))){ out.push({ article:m[1], ean:"", designation:cleanDesBiodis(m[2]), marque:"", attendu:parseInt(m[4],10), categorie:"Autres", nonLivre:true, comment:m[3] }); continue; }
+    let art=null, ean="", att=0;
+    if((m=L.match(reU)))  { art=m[1]; ean=m[3]; att=parseInt(m[4],10); }
+    else if((m=L.match(reKG))){ art=m[1]; ean=m[3]; att=toNum(m[4]); }
+    if(art){
+      // La désignation est sur la/les ligne(s) juste en dessous de la ligne chiffrée.
+      let des=[];
+      for(let j=i+1;j<rowLines.length && des.length<3;j++){
+        const N=rowLines[j];
+        if(isItemNum(N)||reND.test(N)||isMeta(N)) break;
+        des.push(N);
+      }
+      out.push({ article:art, ean:ean.replace(/^0+(?=\d)/,""), designation:cleanDesBiodis(des.join(" ")), marque:"", attendu:att, categorie:"Autres" });
+    }
+  }
+  return { docNumber, supplier, lines: out };
+}
+// Choisit le parseur PDF selon le fournisseur détecté dans le texte.
+function pickPdfParser(rowLines){
+  const j=rowLines.join("\n");
+  if(/BIODIS/i.test(j)) return parseBiodisPDF(rowLines);
+  return parsePDFLines(rowLines); // Vitafrais (par défaut)
+}
+
+// Lit un PDF (ArrayBuffer) -> lignes visuelles groupées par y, puis parseur adapté
 async function readPDF(arrayBuffer){
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   let rowLines=[];
@@ -424,7 +464,7 @@ async function readPDF(arrayBuffer){
       if(line) rowLines.push(line);
     });
   }
-  return parsePDFLines(rowLines);
+  return pickPdfParser(rowLines);
 }
 
 // Détecte le format et renvoie la sortie commune
