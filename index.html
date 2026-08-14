@@ -195,6 +195,12 @@ function __cdnFB(u){ document.write('<scr'+'ipt src="'+u+'"></scr'+'ipt>'); }
   .op-row .c { font-family:monospace; background:#eef2f7; padding:2px 8px; border-radius:6px; }
   .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
   .small-note { font-size:12px; color:#888; margin-top:10px; line-height:1.4; }
+
+  /* Version + bandeau mise à jour (v1.1.0) */
+  .ver-badge { position: fixed; bottom: 6px; right: 8px; z-index: 40; font-size: 10px; color: #9aa; background: rgba(0,0,0,.04); padding: 2px 7px; border-radius: 8px; pointer-events: none; }
+  .ver-login { font-size: 11px; color: #aaa; margin-top: 18px; text-align: center; }
+  .update-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 300; background: #1a4d2e; color: #fff; padding: 10px 14px; display: flex; align-items: center; justify-content: center; gap: 12px; font-size: 13px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+  .update-bar button { background: #fff; color: #1a4d2e; font-weight: 800; padding: 6px 14px; border-radius: 6px; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -207,6 +213,10 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 /* ============================ CONFIGURATION =========================== */
 /* ===================================================================== */
 
+// Version de l'app (voir VERSIONS.md). Affichée en bas + comparée à la version
+// canonique renvoyée par l'Apps Script (get-version) pour proposer la mise à jour.
+const APP_VERSION = "1.1.0";
+
 // >>> À REMPLIR avec la config de TON projet Firebase PRIBON (voir README) <<<
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyAe-oMdObRk0_JSMHK7F4Mgqo7yMrHEK5g",
@@ -217,7 +227,7 @@ const FIREBASE_CONFIG = {
 
   projectId: "robespierre-65cdf",
 
-  appId: "1:870656040014:web:8a33269cc4bc348145771f" 
+  appId: "1:870656040014:web:8a33269cc4bc348145771f"
  };
 // UNE app + UNE base Firebase par dépôt. Pour dupliquer : changer ce bloc + FIREBASE_CONFIG.
 const STORE = { code: "ROBESPIERRE", label: "Pribon Robespierre", appName: "PRIBON ROBESPIERRE" };
@@ -240,6 +250,16 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzSMWziEuPvxY6U
 
 // Adresse d'info (le destinataire réel du récap est défini côté Apps Script)
 const ADMIN_EMAIL = "hg@probon.fr";
+
+// Durée d'inactivité avant déconnexion automatique du vendeur (ms).
+const INACTIVITY_MS = 20 * 60 * 1000; // 20 min
+
+// Verrou de session unique (un code perso = un seul appareil à la fois).
+const SESSION_STALE_MS = 90 * 1000;  // au-delà, une session est considérée morte (récupérable)
+const HEARTBEAT_MS = 30 * 1000;      // le vendeur actif rafraîchit son verrou toutes les 30s
+
+// Identifiant de session aléatoire (par connexion / appareil).
+function genSessionId(){ return "s"+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 
 /* ===================================================================== */
 
@@ -273,16 +293,40 @@ function resizeImageToBase64(file, maxDim){
   });
 }
 
-// Valide un code vendeur côté serveur (registre central). Renvoie true/false.
-// Le nom du vendeur n'est JAMAIS renvoyé au navigateur.
-async function verifyVendorCode(code){
+// Valide un login vendeur côté serveur : code perso + code magasin (valable 3h).
+// Renvoie { valid, reason } — le nom du vendeur n'est JAMAIS renvoyé au navigateur.
+async function verifyLogin(code, storeSessionCode){
   if(!APPS_SCRIPT_READY()) throw new Error("Configuration serveur manquante (APPS_SCRIPT_URL).");
   const res = await fetch(APPS_SCRIPT_URL, {
     method:"POST", headers:{ "Content-Type":"text/plain;charset=utf-8" },
-    body: JSON.stringify({ action:"verify-code", code, storeCode:STORE.code })
+    body: JSON.stringify({ action:"verify-login", code, storeSessionCode, storeCode:STORE.code })
   });
   const json = await res.json();
-  return !!(json && json.valid);
+  return json || { valid:false, reason:"Réponse serveur invalide." };
+}
+
+// Récupère la version canonique de l'app (get-version). Renvoie une string ou null.
+async function fetchLatestVersion(){
+  if(!APPS_SCRIPT_READY()) return null;
+  try{
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method:"POST", headers:{ "Content-Type":"text/plain;charset=utf-8" },
+      body: JSON.stringify({ action:"get-version" })
+    });
+    const j = await res.json();
+    return (j && j.version) ? String(j.version) : null;
+  }catch(e){ return null; }
+}
+
+// Compare deux versions "x.y.z". Renvoie true si b > a.
+function isNewer(a, b){
+  const pa=String(a).split(".").map(n=>parseInt(n,10)||0);
+  const pb=String(b).split(".").map(n=>parseInt(n,10)||0);
+  for(let i=0;i<Math.max(pa.length,pb.length);i++){
+    const x=pa[i]||0, y=pb[i]||0;
+    if(y>x) return true; if(y<x) return false;
+  }
+  return false;
 }
 
 // Envoie la photo à Google Drive via Apps Script et renvoie l'URL du fichier.
@@ -444,6 +488,98 @@ function useConnection(){
   return connected;
 }
 
+/* ---- Verrou de session unique (un code perso = un seul appareil) ---- */
+// Tente de prendre le verrou pour `code`. Renvoie { ok, sessionId } ou { ok:false }.
+// Bloque si une session fraîche (heartbeat < 90s) existe déjà sur un autre appareil.
+async function claimSession(code){
+  if(!db) return { ok:true, sessionId:genSessionId() }; // dégradé : pas de Firebase
+  const sessionId=genSessionId();
+  const ref=db.ref("sessions/"+code);
+  const res=await ref.transaction(cur=>{
+    const now=Date.now();
+    if(cur && cur.lastSeen && (now - cur.lastSeen) < SESSION_STALE_MS && cur.sessionId!==sessionId){
+      return; // abandon : un autre appareil est actif → transaction non committée
+    }
+    return { sessionId, lastSeen:now, at:now };
+  });
+  if(res && res.committed){
+    try{ ref.onDisconnect().remove(); }catch(e){}
+    return { ok:true, sessionId };
+  }
+  return { ok:false };
+}
+// Libère le verrou (à la déconnexion) si c'est toujours le nôtre.
+async function releaseSession(code, sessionId){
+  if(!db || !code) return;
+  try{
+    const ref=db.ref("sessions/"+code);
+    try{ ref.onDisconnect().cancel(); }catch(e){}
+    const snap=await ref.get();
+    const v=snap.val();
+    if(!v || v.sessionId===sessionId) await ref.remove();
+  }catch(e){}
+}
+
+// Maintient le verrou vivant + détecte une éviction par un AUTRE appareil.
+// Ne se déconnecte PAS sur simple disparition du nœud (micro-coupure réseau) : on le ré-établit.
+function useSessionGuard(operator, onKicked){
+  useEffect(()=>{
+    if(!db || !operator || !operator.code || !operator.sessionId) return;
+    const code=operator.code, sid=operator.sessionId;
+    const ref=db.ref("sessions/"+code);
+    try{ ref.onDisconnect().remove(); }catch(e){}
+    const beat=setInterval(()=>{
+      try{ ref.onDisconnect().remove(); }catch(e){}
+      ref.update({ lastSeen:Date.now(), sessionId:sid }).catch(()=>{});
+    }, HEARTBEAT_MS);
+    let ready=false; const t0=setTimeout(()=>{ ready=true; }, 2000);
+    const cb=s=>{ const v=s.val();
+      if(v && v.sessionId!==sid){ onKicked(); return; }            // un autre appareil a réellement pris la main
+      if(!v && ready){ ref.set({ sessionId:sid, lastSeen:Date.now(), at:Date.now() }).catch(()=>{}); } // ré-établir après purge réseau
+    };
+    ref.on("value",cb);
+    return ()=>{ clearInterval(beat); clearTimeout(t0); ref.off("value",cb); };
+  },[operator && operator.code, operator && operator.sessionId]);
+}
+
+// Déconnexion automatique après INACTIVITY_MS sans interaction.
+function useInactivityLogout(active, onTimeout){
+  useEffect(()=>{
+    if(!active) return;
+    let timer=null;
+    const reset=()=>{ if(timer) clearTimeout(timer); timer=setTimeout(onTimeout, INACTIVITY_MS); };
+    const evs=["mousedown","keydown","touchstart","click","scroll"];
+    evs.forEach(e=>window.addEventListener(e, reset, { passive:true }));
+    reset();
+    return ()=>{ if(timer) clearTimeout(timer); evs.forEach(e=>window.removeEventListener(e, reset)); };
+  },[active]);
+}
+
+// Vérifie régulièrement s'il existe une version plus récente (get-version).
+function useVersionCheck(){
+  const [latest,setLatest]=useState(null);
+  useEffect(()=>{
+    let stop=false;
+    const check=async()=>{ const v=await fetchLatestVersion(); if(!stop && v) setLatest(v); };
+    check();
+    const t=setInterval(check, 10*60*1000); // toutes les 10 min
+    const onFocus=()=>check();
+    window.addEventListener("focus", onFocus);
+    return ()=>{ stop=true; clearInterval(t); window.removeEventListener("focus", onFocus); };
+  },[]);
+  const updateAvailable = latest && isNewer(APP_VERSION, latest);
+  return { latest, updateAvailable };
+}
+
+// Recharge en cassant le cache (nouvelle URL => GitHub Pages sert la version fraîche).
+function reloadToLatest(latest){
+  try{
+    const u=new URL(location.href);
+    u.searchParams.set("v", latest||String(Date.now()));
+    location.replace(u.toString());
+  }catch(e){ location.reload(); }
+}
+
 /* ============================== LOGIN ================================ */
 function Brand(){
   const [ok,setOk]=useState(true);
@@ -489,19 +625,24 @@ function ResponsableLogin({ onAuthed }){
 
 function LoginScreen({ onOperator, onAdmin }){
   const [code,setCode]=useState("");
+  const [storeCode,setStoreCode]=useState("");
   const [err,setErr]=useState("");
   const [busy,setBusy]=useState(false);
-  const [showAdmin,setShowAdmin]=useState(false);
 
   const submit=async()=>{
     setErr("");
     const c=code.trim();
-    if(c.length<4){ setErr("Entrez votre code."); return; }
+    const sc=storeCode.trim();
+    if(c.length<4){ setErr("Entrez votre code personnel."); return; }
+    if(sc.length<4){ setErr("Entrez le code magasin (donné par le bureau)."); return; }
     setBusy(true);
     try{
-      const ok=await verifyVendorCode(c);
-      if(ok){ onOperator({ code:c }); }   // aucun nom : le vendeur est identifié par son code
-      else setErr("Code inconnu, désactivé, ou non rattaché à ce magasin.");
+      const res=await verifyLogin(c, sc);
+      if(!(res && res.valid)){ setErr(res && res.reason ? res.reason : "Code incorrect ou expiré."); setBusy(false); return; }
+      // Session unique : refuse si le code est déjà actif sur un autre appareil.
+      const lock=await claimSession(c);
+      if(!lock.ok){ setErr("Ce code est déjà utilisé sur un autre appareil. Fermez l'autre session (ou attendez 1 min) puis réessayez."); setBusy(false); return; }
+      onOperator({ code:c, storeSessionCode:sc, sessionId:lock.sessionId });
     }catch(e){ setErr("Erreur : "+e.message); }
     setBusy(false);
   };
@@ -512,15 +653,22 @@ function LoginScreen({ onOperator, onAdmin }){
       <div className="tag">{STORE.label} · Réception des livraisons</div>
       <div className="card">
         <div className="field">
-          <label>Code vendeur</label>
+          <label>Code personnel</label>
           <input className="code-input" inputMode="numeric" pattern="[0-9]*" maxLength={7}
             value={code} placeholder="•••••"
             onChange={e=>setCode(e.target.value.replace(/[^0-9]/g,""))}
             onKeyDown={e=>{ if(e.key==="Enter") submit(); }} autoFocus />
         </div>
+        <div className="field">
+          <label>Code magasin (valable 3h)</label>
+          <input className="code-input" inputMode="numeric" pattern="[0-9]*" maxLength={6}
+            value={storeCode} placeholder="••••"
+            onChange={e=>setStoreCode(e.target.value.replace(/[^0-9]/g,""))}
+            onKeyDown={e=>{ if(e.key==="Enter") submit(); }} />
+        </div>
         <button className="btn-primary" onClick={submit} disabled={busy}>{busy?"…":"Entrer"}</button>
         {err && <div className="err">{err}</div>}
-        <div className="small-note">Votre code personnel vous est communiqué par le gérant. Il ne fonctionne que dans ce magasin.</div>
+        <div className="small-note">Votre code personnel vient du gérant. Le code magasin est donné par le bureau et change toutes les 3h.</div>
       </div>
 
       {/* Accès discrets vers le repo admin central (connexion Google là-bas). */}
@@ -528,6 +676,7 @@ function LoginScreen({ onOperator, onAdmin }){
         <a className="link-btn" style={{opacity:.4,fontSize:12}} href={ADMIN_BASE+"reception.html"}>Admin</a>
         <a className="link-btn" style={{opacity:.4,fontSize:12}} href={ADMIN_BASE+"superadmin.html"}>Master</a>
       </div>
+      <div className="ver-login">Version {APP_VERSION}</div>
     </div>
   );
 }
@@ -1225,13 +1374,43 @@ function App(){
   const [view,setView]=useState("login"); // login | home | reception | recap | admin
   const [ctx,setCtx]=useState({}); // {doc, reception} pour reception ; {recId,lineStates,activeLines,doc} pour recap
   const [showLogout,setShowLogout]=useState(false);
-  const [bc,setBc]=useState(null);
-  const [bcAck,setBcAck]=useState(()=>{ try{ return localStorage.getItem("pribon_bc_ack")||""; }catch(e){ return ""; } });
+  const [stayMode,setStayMode]=useState(false);   // ré-auth "rester connecté"
+  const [stayCode,setStayCode]=useState("");
+  const [stayErr,setStayErr]=useState("");
+  const [autoMsg,setAutoMsg]=useState("");        // message de déconnexion auto (inactivité / éviction)
+  const [broadcasts,setBroadcasts]=useState({});
+  const { latest, updateAvailable }=useVersionCheck();
 
-  useEffect(()=>{ if(!db) return; const r=db.ref("broadcast"); const cb=s=>setBc(s.val()); r.on("value",cb); return ()=>r.off("value",cb); },[]);
-  const ackBroadcast=()=>{ if(bc&&bc.id){ try{ localStorage.setItem("pribon_bc_ack",bc.id); }catch(e){} setBcAck(bc.id); } };
-  const doLogout=()=>{ setShowLogout(false); setCtx({}); setOperator(null); setView("login"); };
-  const showBroadcast = operator && bc && bc.message && bc.id && bc.id!==bcAck && view!=="login" && view!=="admin";
+  useEffect(()=>{ if(!db) return; const r=db.ref("broadcasts"); const cb=s=>setBroadcasts(s.val()||{}); r.on("value",cb); return ()=>r.off("value",cb); },[]);
+
+  const doLogout=()=>{
+    if(operator) releaseSession(operator.code, operator.sessionId);
+    setShowLogout(false); setStayMode(false); setStayCode(""); setStayErr("");
+    setCtx({}); setOperator(null); setView("login");
+  };
+  const kicked=useCallback(()=>{ setAutoMsg("Votre code a été utilisé sur un autre appareil : vous avez été déconnecté."); doLogout(); },[operator]);
+  useSessionGuard(operator, kicked);
+  const onInactive=useCallback(()=>{ setAutoMsg("Déconnexion automatique après 20 minutes d'inactivité."); doLogout(); },[operator]);
+  useInactivityLogout(!!operator, onInactive);
+
+  // Rester connecté : re-saisie du code personnel (prouve que c'est bien la même personne).
+  const confirmStay=()=>{
+    if(stayCode.trim()===String(operator.code)){ setShowLogout(false); setStayMode(false); setStayCode(""); setStayErr(""); }
+    else setStayErr("Code personnel incorrect.");
+  };
+
+  // Push v2 : popup tant que non expiré ET non lu par CE vendeur.
+  const pendingBc=useMemo(()=>{
+    if(!operator) return null;
+    const now=Date.now();
+    const list=Object.entries(broadcasts).map(([id,b])=>({id,...b}))
+      .filter(b=>b && b.message && (!b.validUntil || now<=b.validUntil))
+      .filter(b=>!(b.reads && b.reads[operator.code]))
+      .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    return list[0]||null;
+  },[broadcasts,operator]);
+  const ackBroadcast=(id)=>{ if(!db||!operator) return; db.ref("broadcasts/"+id+"/reads/"+operator.code).set(Date.now()).catch(()=>{}); };
+  const showBroadcast = operator && pendingBc && view!=="login" && view!=="admin";
 
   const configMissing = FIREBASE_CONFIG.databaseURL.includes("__A_REMPLIR__");
 
@@ -1286,13 +1465,33 @@ function App(){
       {showLogout && (
         <div className="modal-backdrop">
           <div className="modal" style={{textAlign:"center"}}>
-            <div style={{fontSize:40}}>✅</div>
-            <h3>Réception validée</h3>
-            <div className="sub">Avez-vous terminé vos réceptions ?<br/><b>Pensez à vous déconnecter</b> pour que personne n'utilise votre code.</div>
-            <div className="modal-actions">
-              <button className="btn-cancel" onClick={()=>setShowLogout(false)}>Rester connecté</button>
-              <button className="btn-confirm" onClick={doLogout}>Me déconnecter</button>
-            </div>
+            {!stayMode ? (
+              <>
+                <div style={{fontSize:40}}>✅</div>
+                <h3>Réception validée</h3>
+                <div className="sub">Avez-vous terminé vos réceptions ?<br/><b>Pensez à vous déconnecter</b> pour que personne n'utilise votre code.</div>
+                <div className="modal-actions">
+                  <button className="btn-cancel" onClick={()=>{ setStayErr(""); setStayCode(""); setStayMode(true); }}>Rester connecté</button>
+                  <button className="btn-confirm" onClick={doLogout}>Me déconnecter</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3>Rester connecté</h3>
+                <div className="sub">Confirmez votre présence : retapez votre <b>code personnel</b>.</div>
+                <div className="field">
+                  <input className="code-input" inputMode="numeric" pattern="[0-9]*" maxLength={7} autoFocus
+                    value={stayCode} placeholder="•••••"
+                    onChange={e=>setStayCode(e.target.value.replace(/[^0-9]/g,""))}
+                    onKeyDown={e=>{ if(e.key==="Enter") confirmStay(); }}/>
+                </div>
+                {stayErr && <div className="err">{stayErr}</div>}
+                <div className="modal-actions">
+                  <button className="btn-cancel" onClick={doLogout}>Me déconnecter</button>
+                  <button className="btn-confirm" onClick={confirmStay}>Confirmer</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1301,11 +1500,32 @@ function App(){
         <div className="modal-backdrop">
           <div className="modal">
             <h3>📢 Message du responsable</h3>
-            <div className="push-msg">{bc.message}</div>
-            <button className="btn-primary" onClick={ackBroadcast}>J'ai compris</button>
+            <div className="push-msg">{pendingBc.message}</div>
+            {pendingBc.validUntil && <div className="small-note">Valable jusqu'au {fmtDate(pendingBc.validUntil)}</div>}
+            <button className="btn-primary" onClick={()=>ackBroadcast(pendingBc.id)}>J'ai vu / Je valide</button>
           </div>
         </div>
       )}
+
+      {autoMsg && (
+        <div className="modal-backdrop">
+          <div className="modal" style={{textAlign:"center"}}>
+            <div style={{fontSize:38}}>🔒</div>
+            <h3>Session fermée</h3>
+            <div className="sub">{autoMsg}</div>
+            <button className="btn-primary" onClick={()=>setAutoMsg("")}>OK</button>
+          </div>
+        </div>
+      )}
+
+      {updateAvailable && (
+        <div className="update-bar">
+          <span>Nouvelle version {latest} disponible</span>
+          <button onClick={()=>reloadToLatest(latest)}>Mettre à jour</button>
+        </div>
+      )}
+
+      <div className="ver-badge">v{APP_VERSION}</div>
     </>
   );
 }
