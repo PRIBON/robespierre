@@ -416,7 +416,7 @@ function cleanDesBiodis(s){ return String(s||"").replace(/\s+(Non\s+Bio|Bio|Conv
 function parseBiodisPDF(rowLines){
   const out=[]; let supplier="BIODIS", docNumber=""; let stopped=false;
   const reU  = /^(\d{3,7})\s+(.+?)\s+(\d{13})\s+\d+\s+(\d+)\s+U\s+[\d.,]+\s+[\d.,]+\s+\d+\s*$/;      // ref certif EAN colis qté U prixU montant tva
-  const reKG = /^(\d{3,7})\s+(.+?)\s+(\d{13})\s+\d+\s+([\d.,]+)KG\s+[\d.,]+\s+[\d.,]+\s+\d+\s*$/;    // idem, quantité en KG
+  const reKG = /^(\d{3,7})\s+(.+?)\s+(\d{13})\s+\d+\s+([\d.,]+)\s*KG\s+[\d.,]+\s+[\d.,]+\s+\d+\s*$/;  // idem, quantité en KG (espace avant KG toléré)
   const reND = /^(\d{3,7})\s+(.+?)\s+(Non livr[ée]|Produit sur commande|Rupture fournisseur)\s+(\d+)\s+U\s*$/i; // non livré / sur commande / rupture
   const isItemNum=(s)=>reU.test(s)||reKG.test(s);
   // Lignes "meta" à ignorer (prix, DLC, lot, en-têtes, énergie, nombres isolés…)
