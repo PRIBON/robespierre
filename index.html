@@ -215,7 +215,7 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // Version de l'app (voir VERSIONS.md). Affichée en bas + comparée à la version
 // canonique renvoyée par l'Apps Script (get-version) pour proposer la mise à jour.
-const APP_VERSION = "1.2.1";
+const APP_VERSION = "1.2.0";
 
 // >>> À REMPLIR avec la config de TON projet Firebase PRIBON (voir README) <<<
 const FIREBASE_CONFIG = {
@@ -929,21 +929,12 @@ function EcartModal({ line, current, onSave, onClose }){
     const v=toNum(val);
     if(line.poidsVariable && (!poids || toNum(poids)<=0)){ setErr("Le poids reçu est obligatoire (poids variable)."); return; }
     if(M.photo && !photoUrl){ setErr("Photo obligatoire pour ce motif."); return; }
+    // Quantité réelle (en pièces) = attendu - problème ; le .txt la divisera par le conditionnement.
     let aptevente, reel, manque=0;
-    if(M.mode==="reel"){
-      // Le vendeur saisit directement la quantité réellement reçue.
-      reel=v;
-      aptevente=v;
-      manque=Math.max(0, line.attendu - v);
-    } else {
-      // Pour une casse/perte/etc., le vendeur saisit la quantité concernée.
-      // La quantité réellement reçue = attendu - quantité concernée.
-      manque=Math.min(v, line.attendu);
-      reel=Math.max(0, line.attendu - manque);
-      aptevente=reel;
-    }
+    if(M.mode==="reel"){ reel=v; aptevente=v; manque=Math.max(0, line.attendu - v); }
+    else { manque=v; aptevente=Math.max(0, line.attendu - v); reel=aptevente; }
     onSave({ motif:M.key, saisi:v, manque, aptevente, reel,
-      poids: line.poidsVariable? toNum(poids): null, avoir:M.avoir,
+      poids: line.poidsVariable? toNum(poids): null, avoir:M.avoir, stockSortie:0,
       ecartText:txt.trim(), photoUrl });
   };
 
@@ -963,12 +954,7 @@ function EcartModal({ line, current, onSave, onClose }){
           <div className="field">
             <label>{M.ask}</label>
             <input inputMode="numeric" value={val} onChange={e=>setVal(e.target.value.replace(/[^0-9.,]/g,""))} placeholder="0"/>
-            <div className="small-note">
-              {M.mode==="reel"
-                ? "→ cette quantité est la quantité réellement reçue"
-                : "→ cette quantité est déduite de l'attendu pour calculer la quantité réellement reçue"}
-              {" · "}{M.avoir?"génère une demande d'avoir":"pas de demande d'avoir"}
-            </div>
+            <div className="small-note">{M.avoir?"→ génère une demande d'avoir":"→ pas de demande d'avoir"}{cdt?` · quantité G5 = reçu ÷ ${cdt} (conditionnement)`:""}</div>
           </div>
         )}
         {line.poidsVariable && (
@@ -1034,7 +1020,7 @@ function ProductCard({ line, lk, state, readOnly, onConforme, onEcart, onNonRecu
       <div className="designation">{line.designation}</div>
       <div className="product-meta">
         {line.cdt
-          ? <span className="attendu-pill">Attendu <b>{line.attendu/line.cdt}</b> colis <span style={{color:"#888"}}>({line.attendu} pcs · colis de {line.cdt})</span></span>
+          ? <span className="attendu-pill"><b style={{fontSize:22}}>{line.attendu/line.cdt}</b> colis <span style={{color:"#888",fontSize:11,fontWeight:600}}>(quantité : {line.attendu} · colis de {line.cdt})</span></span>
           : <span className="attendu-pill">Attendu <b>{line.attendu}</b></span>}
         {line.poidsVariable && <span className="badge" style={{background:"#fdecea",color:"#c62828"}}>⚖️ poids variable</span>}
         {line.article && <span className="article">#{line.article}</span>}
@@ -1045,7 +1031,7 @@ function ProductCard({ line, lk, state, readOnly, onConforme, onEcart, onNonRecu
         <div className="actions-col">
           <button className={"btn-conf"+(st.status==="conforme"?" on":"")}
             style={line.poidsVariable?{background:(st.status==="conforme"?"#2e7d32":"#c62828")}:null}
-            onClick={onConforme}>{line.poidsVariable?"✓ Conforme — saisir le poids":"✓ Reçu conforme"}</button>
+            onClick={onConforme}>{line.poidsVariable?"✓ Conforme — saisir le poids":(line.cdt?("✓ Reçu conforme — "+(line.attendu/line.cdt)+" colis"):"✓ Reçu conforme")}</button>
           <div className="actions-row">
             <button className={"btn-nonconf"+(st.status==="ecart"?" on":"")} onClick={onEcart}>Non conforme</button>
             <button className={"btn-nonrecu"+(st.status==="nonrecu"?" on":"")} onClick={onNonRecu}>Pas reçu</button>
@@ -1131,7 +1117,7 @@ function ReceptionScreen({ operator, doc, reception, onExit, onGoRecap }){
   const saveEcart=(line,lk,data)=>{
     persistLine(lk,{ status:"ecart", motif:data.motif, saisi:data.saisi, manque:data.manque,
       aptevente:data.aptevente, reel:data.reel, poids:(data.poids!=null?data.poids:null),
-      avoir:!!data.avoir,
+      avoir:!!data.avoir, stockSortie:data.stockSortie||0,
       ecartText:data.ecartText, photoUrl:data.photoUrl||"",
       article:line.article, ean:line.ean||"", designation:line.designation, attendu:line.attendu });
     setEcartFor(null);
