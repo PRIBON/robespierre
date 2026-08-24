@@ -653,7 +653,7 @@ function ResponsableLogin({ onAuthed }){
             const r=await fetch(APPS_SCRIPT_URL,{ method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"},
               body:JSON.stringify({ action:"verify-responsable", idToken:resp.credential }) });
             const j=await r.json();
-            if(j && j.allowed) onAuthed();
+            if(j && j.allowed) onAuthed(j.email);
             else setErr("Accès refusé : "+((j&&j.email)||"")+" n'est pas autorisé.");
           }catch(e){ setErr("Erreur : "+e.message); }
           setBusy(false);
@@ -721,7 +721,7 @@ function LoginScreen({ onOperator, onAdmin }){
         {err && <div className="err">{err}</div>}
         <div className="small-note">Votre code personnel vient du gérant. Le code magasin est donné par le bureau et change toutes les 3h.</div>
       </div>
-
+<ResponsableLogin onAuthed={(email)=>onOperator({ code:'MASTER-'+String(email).split('@')[0], sessionId:genSessionId(), storeExpiresAt:null, isMaster:true, email:String(email) })}/>
       {/* Accès discrets vers le repo admin central (connexion Google là-bas). */}
       <div style={{marginTop:24,display:"flex",gap:18,justifyContent:"center"}}>
         <a className="link-btn" style={{opacity:.4,fontSize:12}} href={ADMIN_BASE+"reception.html"}>Admin</a>
